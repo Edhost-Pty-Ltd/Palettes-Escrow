@@ -4,6 +4,10 @@ node_modules/
 # Environment variables
 .env
 
+# Firebase service account keys (sensitive)
+*firebase-adminsdk*.json
+google-services.json
+
 # Logs
 logs/
 *.log

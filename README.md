@@ -4,12 +4,30 @@ A clean, minimal Paystack payment API with split payment functionality for servi
 
 ## Quick Start
 
-1. Install dependencies:
+1. **Clone the repository**
+```bash
+git clone https://github.com/Edhost-Pty-Ltd/Palettes-Escrow.git
+cd Palettes-Escrow
+```
+
+2. **Install dependencies**
 ```bash
 npm install
 ```
 
-2. Start the server:
+3. **Configure environment variables**
+```bash
+cp .env.example .env
+# Edit .env with your actual values
+```
+
+4. **Configure Firebase**
+```bash
+cp firebase.example.json your-firebase-service-account.json
+# Update firebase.js to point to your service account file
+```
+
+5. **Start the server**
 ```bash
 npm start
 ```
@@ -52,3 +70,9 @@ PAYSTACK_CALLBACK_URL=http://localhost:3000/api/payments/callback
 JWT_SECRET=your_jwt_secret_here
 NODE_ENV=development
 ```
+
+## Security Notes
+
+- Never commit `.env` files or Firebase service account keys
+- Use environment variables for all sensitive data
+- Firebase service account file should be kept secure and not tracked in git
