@@ -7,6 +7,9 @@ node_modules/
 # Firebase service account keys (sensitive)
 *firebase-adminsdk*.json
 google-services.json
+google-service.json
+your-firebase-service-account.json
+*.service-account.json
 
 # Logs
 logs/
