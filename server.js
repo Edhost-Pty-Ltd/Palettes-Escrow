@@ -13,7 +13,10 @@ require('dotenv').config();
 
 // Import required modules
 const express = require('express');
+const cors = require('cors');
 const paymentRoutes = require('./routes/payments');
+const refundsRoutes = require('./routes/refunds');
+
 
 // Create Express application
 const app = express();
@@ -27,7 +30,13 @@ const PORT = process.env.PORT || 3000;
 
 // Parse JSON request bodies (required for API endpoints)
 app.use(express.json());
+app.use(cors());
 
+//testing the api
+
+app.get("/api/test", (req, res) => {
+  res.json({ message: "Backend working ✅" });
+});
 // ============================================================================
 // ROUTE CONFIGURATION
 // ============================================================================
@@ -35,12 +44,12 @@ app.use(express.json());
 // Mount payment routes with /api/payments prefix
 // All 18 Paystack endpoints are available under this prefix
 app.use('/api/payments', paymentRoutes);
+app.use('/api/refunds', refundsRoutes);
 
 // ============================================================================
 // HEALTH CHECK ENDPOINT
 // ============================================================================
 
-// Health check endpoint to verify server status
 app.get('/health', (req, res) => {
   res.json({ 
     status: 'ok', 
@@ -48,14 +57,13 @@ app.get('/health', (req, res) => {
     payment_provider: 'Paystack',
     api_base: '/api/payments',
     split_payment: {
-      markup_percentage: 5,           // Covers Paystack fees
-      agent_fee_percentage: 10,       // Platform commission
-      total_markup: 15,               // Total additional cost
-      refund_policy: 'Service amount only' // Only original service cost is refundable
+      markup_percentage: 5,
+      agent_fee_percentage: 10,
+      total_markup: 15,
+      refund_policy: 'Service amount only'
     }
   });
 });
-
 // ============================================================================
 // START SERVER
 // ============================================================================

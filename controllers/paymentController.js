@@ -31,7 +31,7 @@ const initializePayment = async (req, res) => {
     // EXTRACT AND VALIDATE INPUT
     // ========================================
     
-    const { email, amount, metadata = {} } = req.body;
+    const { email, amount, userId, metadata = {} } = req.body;
 
     // Validate required fields
     if (!email) {
@@ -86,18 +86,17 @@ const initializePayment = async (req, res) => {
       currency: 'ZAR',
       callback_url: process.env.PAYSTACK_CALLBACK_URL, // Local callback URL
       metadata: {
-        // Store original service amount for refund processing
+        ...metadata, 
         service_amount: breakdown.serviceAmount,
         markup_amount: breakdown.markupAmount,
         agent_service_fee: breakdown.agentServiceFee,
         total_amount: breakdown.totalAmount,
+        firebaseUID: userId || '',
         
-        // Include any additional metadata from frontend
-        ...metadata,
-        
-        // Add timestamp for tracking
         created_at: new Date().toISOString(),
-        local_development: true
+        local_development: true,
+        
+
       }
     };
 
@@ -118,6 +117,7 @@ const initializePayment = async (req, res) => {
     
     // Send POST request to Paystack transaction initialization endpoint
     // This uses the Paystack secret key in authorization header (secure on server)
+    console.log("FINAL METADATA SENT:", transactionData.metadata);
     const paystackResponse = await paystackService.initializeTransaction(transactionData);
 
     // Check if Paystack request was successful
@@ -238,7 +238,8 @@ const verifyPayment = async (req, res) => {
     }
 
     const transactionData = verification.data;
-    
+
+    console.log("VERIFY FULL DATA:", verification.data);
     console.log(`📊 Transaction Status: ${transactionData.status}`);
     console.log(`💰 Amount: R${(transactionData.amount / 100).toFixed(2)}`);
 

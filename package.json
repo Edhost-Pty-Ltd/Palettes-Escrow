@@ -6,13 +6,19 @@
     "start": "node server.js",
     "dev": "nodemon server.js"
   },
-  "keywords": ["paystack", "payments", "api"],
+  "keywords": [
+    "paystack",
+    "payments",
+    "api"
+  ],
   "author": "",
   "license": "ISC",
   "description": "Paystack payment API with split payment functionality",
   "dependencies": {
     "axios": "^1.7.9",
+    "cors": "^2.8.5",
     "bcrypt": "^5.1.1",
+    "cors": "^2.8.6",
     "dotenv": "^16.4.7",
     "express": "^4.21.1",
     "firebase-admin": "^13.0.1",

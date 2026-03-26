@@ -33,7 +33,8 @@ const createTransactionWithLink = async (req, res) => {
     // ========================================
     
     // Extract the input from the request body
-    const { input } = req.body;
+    // userId should come from the request body (Firebase UID from client)
+    const { input, userId } = req.body;
 
     // Check if input data is provided
     if (!input) {
@@ -206,6 +207,7 @@ const createTransactionWithLink = async (req, res) => {
         // Customer information
         buyer_email: buyerEmail,                  // Customer email
         buyer_name: `${input.buyer?.givenName || ''} ${input.buyer?.familyName || ''}`.trim(), // Customer name
+        firebaseUID: userId || '',                 // Firebase UID for refund filtering
         
         // CRITICAL: Store breakdown amounts for refund processing
         service_amount: breakdown.serviceAmount,   // Original service cost (REFUNDABLE)
@@ -520,7 +522,7 @@ const deleteTransaction = async (req, res) => {
  * Replaces: TradeSafe handleCallback
  * MAINTAINS EXACT TRADESAFE LOGIC: Firestore retry, event emission, auto-delivery trigger
  */
-handleCallback = async (req, res) => {
+const handleCallback = async (req, res) => {
   try {
     const callbackPayload = req.body;
 
