@@ -39,10 +39,10 @@ router.post('/', async (req, res) => {
       });
     }
 
-    // STEP 2: Initiate refund using transaction ID from verified transaction
+    // STEP 2: Initiate refund using transaction reference from verified transaction
     const refundResponse = await axios.post(
       'https://api.paystack.co/refund',
-      { transaction: transaction.id },
+      { transaction: transaction.reference },
       {
         headers: {
           Authorization: `Bearer ${process.env.PAYSTACK_SECRET_KEY}`,
@@ -141,7 +141,7 @@ router.get('/', async (req, res) => {
       const refundUID = metadata?.firebaseUID;
       // booking_id format: "booking_<timestamp>_<uid>"
       const bookingId = metadata?.booking_id || '';
-      const bookingUID = bookingId.split('_').pop();
+      const bookingUID = bookingId.split('_').slice(2).join('_');
 
       console.log("REFUND UID:", refundUID, "BOOKING UID:", bookingUID);
 

@@ -585,8 +585,8 @@ const handleCallback = async (req, res) => {
     }
 
     const transactionDetails = {
-      transactionId: data.id,
       reference: data.reference,
+      transactionId: data.id,
       state,
       balance: data.amount / 100,
       updatedAt: data.paid_at || new Date().toISOString(),
@@ -820,10 +820,9 @@ const refundTransaction = async (req, res) => {
     // ========================================
     // PROCESS REFUND THROUGH PAYSTACK
     // ========================================
-    const refundAmountKobo = refundAmount;
 
-    // Process the refund
-    const result = await paystackService.refundTransaction(reference, refundAmountKobo);
+    // Process the refund — pass ZAR directly; paystackService handles kobo conversion
+    const result = await paystackService.refundTransaction(reference, refundAmount);
 
     if (!result || !result.status) {
       return res.status(400).json({ error: 'Refund failed' });
