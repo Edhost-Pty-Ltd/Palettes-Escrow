@@ -40,3 +40,13 @@ tmp/
 
 # Others
 *.env.*
+# Firebase secrets
+firebase.js
+firebase.js.save
+config/firebase.js
+
+# Tokens
+token.txt
+
+# Coverage
+coverage/
