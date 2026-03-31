@@ -1,172 +1,181 @@
 const express = require('express');
 const axios = require('axios');
+const db = require('../config/firebase');
+const { FieldValue } = require('firebase-admin/firestore');
 
 const router = express.Router();
 
-// POST - Initiate a refund
-router.post('/', async (req, res) => {
-  try {
-    const { reference, transactionId } = req.body;
-    const txRef = reference || transactionId;
+const PAYSTACK_SECRET_KEY = process.env.PAYSTACK_SECRET_KEY;
+const PAYSTACK_HEADERS = { Authorization: `Bearer ${PAYSTACK_SECRET_KEY}` };
 
-    console.log("=== REFUND REQUEST ===");
-    console.log("REFERENCE RECEIVED:", txRef);
-
-    if (!txRef) {
-      return res.status(400).json({
-        message: "Transaction reference is required",
-      });
-    }
-
-    // STEP 1: Verify transaction first
-    const verifyResponse = await axios.get(
-      `https://api.paystack.co/transaction/verify/${txRef}`,
-      {
-        headers: {
-          Authorization: `Bearer ${process.env.PAYSTACK_SECRET_KEY}`,
-        },
-      }
-    );
-
-    const transaction = verifyResponse.data.data;
-
-    console.log("VERIFY STATUS:", transaction.status);
-    console.log("VERIFY FULL TRANSACTION:", JSON.stringify(transaction, null, 2));
-
-    if (transaction.status !== 'success') {
-      return res.status(400).json({
-        message: `Transaction not successful, cannot refund. Status: ${transaction.status}`,
-      });
-    }
-
-    // STEP 2: Initiate refund using transaction reference from verified transaction
-    const refundResponse = await axios.post(
-      'https://api.paystack.co/refund',
-      { transaction: transaction.reference },
-      {
-        headers: {
-          Authorization: `Bearer ${process.env.PAYSTACK_SECRET_KEY}`,
-        },
-      }
-    );
-
-    console.log("REFUND RESPONSE:", refundResponse.data);
-
-    res.json({
-      message: "Refund initiated successfully",
-      data: refundResponse.data,
-    });
-
-  } catch (error) {
-    console.error("REFUND ERROR:", error.response?.data || error.message);
-
-    res.status(500).json({
-      message: "Refund failed",
-      error: error.response?.data,
-    });
-  }
-});
-//This is for when paystack returns a string
+// Helper: parse metadata whether it's a string or object
 const parseMetadata = (metadata) => {
   if (!metadata) return null;
   if (typeof metadata === 'string') {
-    try {
-      return JSON.parse(metadata);
-    } catch (error) {
-      console.log("Metadata parse error:", error);
-      return null;
-    }
+    try { return JSON.parse(metadata); } catch { return null; }
   }
   return metadata;
 };
 
-// GET - Fetch refunds for the current user
-router.get('/', async (req, res) => {
+// ============================================================================
+// POST /api/refunds — Initiate a refund (service amount only)
+// ============================================================================
+router.post('/', async (req, res) => {
   try {
-    console.log("=== FETCH FILTERED REFINED ===");
-    const userUID = req.headers['x-user-id'];
+    const { reference, transactionId, amount } = req.body;
+    const txRef = reference || transactionId;
 
-    console.log("CURRENT USER UID:", userUID);
+    if (!txRef) {
+      return res.status(400).json({ message: 'Transaction reference is required' });
+    }
 
-    if (!userUID) {
+    // Step 1: Verify transaction with Paystack
+    const verifyResponse = await axios.get(
+      `https://api.paystack.co/transaction/verify/${txRef}`,
+      { headers: PAYSTACK_HEADERS }
+    );
+
+    const transaction = verifyResponse.data.data;
+
+    if (transaction.status !== 'success') {
       return res.status(400).json({
-        message: "User ID missing",
+        message: `Transaction not eligible for refund. Status: ${transaction.status}`,
       });
     }
 
-    const response = await axios.get(
+    // Step 2: Extract split payment breakdown from metadata
+    const metadata = parseMetadata(transaction.metadata);
+    const serviceAmount = Number(metadata?.service_amount);
+    const markupAmount = Number(metadata?.markup_amount || 0);
+    const agentServiceFee = Number(metadata?.agent_service_fee || 0);
+    const totalPaid = transaction.amount / 100;
+
+    if (!serviceAmount || serviceAmount <= 0) {
+      return res.status(400).json({
+        message: 'Cannot determine refundable amount. Service amount not found in transaction metadata.',
+      });
+    }
+
+    // Step 3: Determine refund amount — capped at service amount
+    let refundAmount;
+    if (amount !== undefined && amount !== null) {
+      if (typeof amount !== 'number' || amount <= 0) {
+        return res.status(400).json({ message: 'Refund amount must be a positive number' });
+      }
+      if (amount > serviceAmount) {
+        return res.status(400).json({
+          message: `Refund amount (${amount}) cannot exceed refundable service amount (${serviceAmount}). Markup and agent fees are non-refundable.`,
+        });
+      }
+      refundAmount = amount;
+    } else {
+      refundAmount = serviceAmount;
+    }
+
+    // Step 4: Submit refund to Paystack (amount in kobo)
+    const refundResponse = await axios.post(
       'https://api.paystack.co/refund',
       {
-        headers: {
-          Authorization: `Bearer ${process.env.PAYSTACK_SECRET_KEY}`,
-        },
-      }
+        transaction: transaction.reference,
+        amount: Math.round(refundAmount * 100),
+      },
+      { headers: PAYSTACK_HEADERS }
     );
 
-    const refunds = response.data.data;
+    const refundData = refundResponse.data.data;
 
-    // The list endpoint returns minimal transaction data — fetch full transaction
-    // for each refund to get metadata with firebaseUID and booking_id.
-    const filteredRefunds = [];
+    // Step 5: Record refund in Firestore
+    const refundRecord = {
+      reference: transaction.reference,
+      paystackRefundId: refundData.id,
+      firebaseUID: metadata?.firebaseUID || null,
+      bookingId: metadata?.booking_id || null,
+      escrowId: metadata?.escrow_id || null,
+      refundedAmount: refundAmount,
+      serviceAmount,
+      markupRetained: markupAmount,
+      agentFeeRetained: agentServiceFee,
+      totalPaid,
+      currency: 'ZAR',
+      status: refundData.status,
+      createdAt: FieldValue.serverTimestamp(),
+    };
 
-    for (const refund of refunds) {
-      // Paystack refund list returns transaction as object or id — handle both
-      const txRef = refund.transaction?.reference || refund.transaction_reference;
-      const txId = refund.transaction?.id || refund.transaction;
+    const docRef = await db.collection('refunds').add(refundRecord);
 
-      let metadata = parseMetadata(refund.transaction?.metadata);
-
-      // Always fetch full transaction if metadata is missing or firebaseUID is empty
-      const needsFullFetch = !metadata || !metadata.firebaseUID || !metadata.booking_id;
-      if (needsFullFetch && (txRef || txId)) {
-        try {
-          // Prefer reference-based verify, fall back to id-based lookup
-          const fetchUrl = txRef
-            ? `https://api.paystack.co/transaction/verify/${txRef}`
-            : `https://api.paystack.co/transaction/${txId}`;
-
-          const txResponse = await axios.get(fetchUrl, {
-            headers: {
-              Authorization: `Bearer ${process.env.PAYSTACK_SECRET_KEY}`,
-            },
-          });
-          const fullTx = txResponse.data?.data;
-          metadata = parseMetadata(fullTx?.metadata);
-          console.log("FETCHED FULL TX METADATA:", metadata);
-        } catch (err) {
-          console.log("Could not fetch transaction for ref:", txRef, "id:", txId, err.message);
-        }
-      }
-
-      const refundUID = metadata?.firebaseUID;
-      // booking_id format: "booking_<timestamp>_<uid>"
-      const bookingId = metadata?.booking_id || '';
-      const bookingUID = bookingId.split('_').slice(2).join('_');
-
-      console.log("REFUND UID:", refundUID, "BOOKING UID:", bookingUID);
-
-      if (refundUID === userUID || bookingUID === userUID) {
-        // Attach parsed metadata and human-readable amount to the refund object
-        filteredRefunds.push({
-          ...refund,
-          amount_zar: (refund.amount / 100).toFixed(2),
-          metadata,
+    // Step 6: Update escrow status if linked
+    if (metadata?.escrow_id) {
+      try {
+        await db.collection('escrowTransactions').doc(metadata.escrow_id).update({
+          payoutStatus: 'refunded',
+          status: 'refunded',
+          updatedAt: FieldValue.serverTimestamp(),
         });
+      } catch (err) {
+        console.error('Failed to update escrow on refund:', err.message);
       }
     }
 
     res.json({
-      status: true,
-      count: filteredRefunds.length,
-      data: filteredRefunds,
+      message: 'Refund initiated successfully',
+      data: {
+        refundId: docRef.id,
+        paystackRefundId: refundData.id,
+        reference: transaction.reference,
+        refunded_amount: refundAmount,
+        service_amount: serviceAmount,
+        markup_retained: markupAmount,
+        agent_fee_retained: agentServiceFee,
+        total_paid: totalPaid,
+        currency: 'ZAR',
+        status: refundData.status,
+      },
     });
 
   } catch (error) {
-    console.error("FETCH REFUNDS ERROR:", error.response?.data || error.message);
-
+    console.error('REFUND ERROR:', error.response?.data || error.message);
     res.status(500).json({
-      message: "Failed to fetch refunds",
-      error: error.response?.data,
+      message: 'Refund failed',
+      error: error.response?.data || error.message,
+    });
+  }
+});
+
+// ============================================================================
+// GET /api/refunds — Fetch refunds for a user (from Firestore)
+// ============================================================================
+router.get('/', async (req, res) => {
+  try {
+    const userUID = req.headers['x-user-id'];
+
+    if (!userUID) {
+      return res.status(400).json({ message: 'User ID missing (x-user-id header required)' });
+    }
+
+    // Query Firestore refunds collection by firebaseUID, sort in-memory
+    const snapshot = await db.collection('refunds')
+      .where('firebaseUID', '==', userUID)
+      .get();
+
+    const refunds = snapshot.docs
+      .map(doc => ({
+        id: doc.id,
+        ...doc.data(),
+        createdAt: doc.data().createdAt?.toDate?.() || null,
+      }))
+      .sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
+
+    res.json({
+      status: true,
+      count: refunds.length,
+      data: refunds,
+    });
+
+  } catch (error) {
+    console.error('FETCH REFUNDS ERROR:', error.message);
+    res.status(500).json({
+      message: 'Failed to fetch refunds',
+      error: error.message,
     });
   }
 });

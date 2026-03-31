@@ -10,8 +10,9 @@
 
 const callbackEvents = require('../events');
 const paystackService = require('../services/paystack');
-const db = require('../firebase');
+const db = require('../config/firebase');
 const crypto = require('crypto');
+const { updateEscrowTransaction } = require('../models/escrowModel');
 
 /**
  * Create transaction with payment link using split payment logic
@@ -198,24 +199,20 @@ const createTransactionWithLink = async (req, res) => {
       
       // Store all payment details in metadata for future reference
       metadata: {
-        // Booking information
-        title: input.title,                       // Service title
-        description: input.description,           // Service description
-        seller_subaccount: input.seller_subaccount, // Seller's Paystack subaccount
-        booking_id: input.booking_id,             // Unique booking identifier
-        
-        // Customer information
-        buyer_email: buyerEmail,                  // Customer email
-        buyer_name: `${input.buyer?.givenName || ''} ${input.buyer?.familyName || ''}`.trim(), // Customer name
-        firebaseUID: userId || '',                 // Firebase UID for refund filtering
-        
-        // CRITICAL: Store breakdown amounts for refund processing
-        service_amount: breakdown.serviceAmount,   // Original service cost (REFUNDABLE)
-        markup_amount: breakdown.markupAmount,     // 5% markup (NON-REFUNDABLE)
-        agent_service_fee: breakdown.agentServiceFee, // 10% agent fee (NON-REFUNDABLE)
-        total_amount: breakdown.totalAmount,       // Total customer pays
-        markup_percentage: 5,                      // Markup percentage for reference
-        agent_service_fee_percentage: 10,          // Agent fee percentage for reference
+        title: input.title,
+        description: input.description,
+        seller_subaccount: input.seller_subaccount,
+        booking_id: input.booking_id,
+        escrow_id: input.escrow_id || null,       // Escrow ID for linking payment to escrow
+        buyer_email: buyerEmail,
+        buyer_name: `${input.buyer?.givenName || ''} ${input.buyer?.familyName || ''}`.trim(),
+        firebaseUID: userId || '',
+        service_amount: breakdown.serviceAmount,
+        markup_amount: breakdown.markupAmount,
+        agent_service_fee: breakdown.agentServiceFee,
+        total_amount: breakdown.totalAmount,
+        markup_percentage: 5,
+        agent_service_fee_percentage: 10,
       },
     };
 
@@ -477,8 +474,8 @@ const cancelTransaction = async (req, res) => {
       return res.status(400).json({ error: 'Authorization code is required to cancel pre-authorization' });
     }
 
-    // Cancel the pre-authorization (release held funds)
-    const result = await paystackService.cancelPreauthorization(authorization_code);
+    // Deactivate the authorization (Paystack equivalent of cancelling pre-auth)
+    const result = await paystackService.makePaystackRequest('POST', '/customer/deactivate_authorization', { authorization_code });
 
     console.log('Transaction cancelled:', comment);
 
@@ -655,6 +652,21 @@ const handleCallback = async (req, res) => {
       if (!docFound) {
         console.log('Document not found after max retries.');
         return res.status(404).json({ error: 'Transaction document not found in Firestore.' });
+      }
+    }
+
+    // Update escrow if escrow_id was passed in metadata
+    if (event === 'charge.success' && data.metadata?.escrow_id) {
+      try {
+        await updateEscrowTransaction(data.metadata.escrow_id, {
+          paymentStatus: 'paid',
+          reference: data.reference,
+          paystackTransactionId: data.id,
+          status: 'active',
+        });
+        console.log('Escrow updated for ID:', data.metadata.escrow_id);
+      } catch (escrowError) {
+        console.error('Failed to update escrow:', escrowError.message);
       }
     }
 

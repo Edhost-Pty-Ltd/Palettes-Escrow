@@ -240,6 +240,7 @@ const verifyPayment = async (req, res) => {
     const transactionData = verification.data;
 
     console.log("VERIFY FULL DATA:", verification.data);
+    console.log(`🆔 Escrow ID in metadata: ${transactionData.metadata?.escrow_id || 'none'}`);
     console.log(`📊 Transaction Status: ${transactionData.status}`);
     console.log(`💰 Amount: R${(transactionData.amount / 100).toFixed(2)}`);
 
@@ -347,6 +348,7 @@ const handleWebhook = async (req, res) => {
         console.log(`   Reference: ${data.reference}`);
         console.log(`   Amount: R${(data.amount / 100).toFixed(2)}`);
         console.log(`   Customer: ${data.customer.email}`);
+        console.log(`   Escrow ID: ${data.metadata?.escrow_id || 'none'}`);
         
         // Extract split payment details
         if (data.metadata) {

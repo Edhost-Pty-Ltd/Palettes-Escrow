@@ -1,4 +1,4 @@
-// ============================================================================
+ // ============================================================================
 // PAYSTACK SPLIT PAYMENT SERVER
 // ============================================================================
 // Main server file for the Paystack split payment system.
@@ -16,6 +16,9 @@ const express = require('express');
 const cors = require('cors');
 const paymentRoutes = require('./routes/payments');
 const refundsRoutes = require('./routes/refunds');
+const escrowRoutes = require('./routes/escrowRoutes');
+const subaccountRoutes = require('./routes/subaccountRoutes');
+const authRoutes = require('./routes/auth');
 
 
 // Create Express application
@@ -45,6 +48,9 @@ app.get("/api/test", (req, res) => {
 // All 18 Paystack endpoints are available under this prefix
 app.use('/api/payments', paymentRoutes);
 app.use('/api/refunds', refundsRoutes);
+app.use('/api/escrow', escrowRoutes);
+app.use('/api/subaccounts', subaccountRoutes);
+app.use('/api/auth', authRoutes);
 
 // ============================================================================
 // HEALTH CHECK ENDPOINT

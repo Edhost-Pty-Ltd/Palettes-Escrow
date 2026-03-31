@@ -27,8 +27,7 @@ const {
 } = require('../controllers/allocationsController');
 
 const { 
-  verifyPayment,
-  handleWebhook 
+  verifyPayment
 } = require('../controllers/paymentController');
 
 // Import middleware
@@ -49,7 +48,9 @@ router.post('/login', login);
 // ============================================================================
 // CORE PAYMENT ENDPOINTS
 // ============================================================================
-
+/// new split logic using subaccount
+const {createSubaccount} =require("../controllers/createSubaccount")
+router.post("/create-subaccount",createSubaccount)
 // Create payment with split logic
 router.post('/transactionCreate', authenticateJWT, createTransactionWithLink);
 
