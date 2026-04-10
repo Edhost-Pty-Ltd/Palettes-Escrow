@@ -1,11 +1,13 @@
 const db = require("../config/firebase");
 const { FieldValue } = require("firebase-admin/firestore");
 
-const createEscrowTransaction = async ({ customerId, vendorId, amount, type, metadata = {} }) => {
+const createEscrowTransaction = async ({ customerId, professionalVendorId, amount, type, metadata = {} }) => {
   try {
+    const transactionReference = `ESC-${Date.now()}-${Math.random().toString(36).substring(2, 8).toUpperCase()}`;
     const escrowData = {
+      transactionReference,
       customerId,
-      vendorId,
+      professionalVendorId,
       type,
       amount,
       currency: "zar",

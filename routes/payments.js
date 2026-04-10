@@ -11,8 +11,9 @@ const express = require('express');
 const { 
   handleCallback, 
   createTransactionWithLink, 
-  refundTransaction
 } = require('../controllers/transactionsController');
+
+const { initiateRefund } = require('../controllers/refundController');
 
 const { 
   createToken, 
@@ -50,15 +51,15 @@ router.post('/login', login);
 // ============================================================================
 /// new split logic using subaccount
 const {createSubaccount} =require("../controllers/createSubaccount")
-router.post("/create-subaccount",createSubaccount)
+router.post("/create-subaccount", authenticateJWT, createSubaccount)
 // Create payment with split logic
 router.post('/transactionCreate', authenticateJWT, createTransactionWithLink);
 
 // Verify payment status (NO AUTH REQUIRED - for frontend integration)
 router.get('/verify/:reference', verifyPayment);
 
-// Process refunds (service amount only)
-router.post('/refund', authenticateJWT, refundTransaction);
+// Process refunds (service amount only) — delegates to shared refundController
+router.post('/refund', authenticateJWT, initiateRefund);
 
 // ============================================================================
 // TOKEN/SUBACCOUNT MANAGEMENT - REQUIRE AUTH
