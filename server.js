@@ -2,10 +2,10 @@
 // PAYSTACK SPLIT PAYMENT SERVER
 // ============================================================================
 // Main server file for the Paystack split payment system.
-// This server handles service booking payments with automatic 15% markup:
-// - 5% markup covers Paystack transaction fees (non-refundable)
-// - 10% agent service fee goes to platform/agents (non-refundable)
-// - Only original service amount is refundable to customers
+// This server handles service booking payments with a 20% platform split:
+// - Platform keeps 20% via Paystack subaccount percentage_charge
+// - Seller receives 80% of the service amount
+// - Only the service amount (80%) is refundable to customers
 // ============================================================================
 
 // Load environment variables from .env file
@@ -63,10 +63,9 @@ app.get('/health', (req, res) => {
     payment_provider: 'Paystack',
     api_base: '/api/payments',
     split_payment: {
-      markup_percentage: 5,
-      agent_fee_percentage: 10,
-      total_markup: 15,
-      refund_policy: 'Service amount only'
+      platform_percentage: 20,
+      seller_percentage: 80,
+      refund_policy: 'Service amount only (80% of total)'
     }
   });
 });
@@ -79,10 +78,9 @@ app.listen(PORT, () => {
   console.log(`🚀 Server is running on http://localhost:${PORT}`);
   console.log('✅ Paystack split payment routes active at /api/payments');
   console.log('💰 Split Payment System:');
-  console.log('   - Service Amount: 85% (goes to seller, refundable)');
-  console.log('   - Markup: 5% (covers Paystack fees, non-refundable)');
-  console.log('   - Agent Fee: 10% (platform commission, non-refundable)');
-  console.log('   - Total Customer Pays: 115% of service cost');
+  console.log('   - Platform keeps: 20% (via subaccount percentage_charge)');
+  console.log('   - Seller receives: 80% of service amount');
+  console.log('   - Refund policy: service amount only');
   console.log('📋 Health check available at /health');
   console.log('🔗 API Documentation: See PAYSTACK_SPLIT_PAYMENT_IMPLEMENTATION.md');
 });

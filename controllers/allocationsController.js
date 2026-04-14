@@ -124,8 +124,8 @@ const getAllocationDetails = async (req, res) => {
           state: result.data.status === 'success' ? 'COMPLETED' : 'PENDING',
           calculation: {
             value: result.data.amount / 100,
-            payout: Math.floor((result.data.amount / 100) * 0.9), // 90% to seller
-            fee: Math.floor((result.data.amount / 100) * 0.1), // 10% agent fee
+            payout: Math.floor((result.data.amount / 100) * 0.8), // 80% to seller
+            fee: Math.floor((result.data.amount / 100) * 0.2), // 20% platform
             refund: 0,
           },
         },

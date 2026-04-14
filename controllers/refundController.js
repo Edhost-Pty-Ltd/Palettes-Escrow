@@ -47,8 +47,11 @@ const initiateRefund = async (req, res) => {
     // With the subaccount model, Paystack handles the platform split automatically.
     // Only service_amount is stored — markup/fee fields are not applicable here.
     const metadata = parseMetadata(transaction.metadata);
-    const serviceAmount = Number(metadata?.service_amount);
     const totalPaid = transaction.amount / 100;
+
+    // Fall back to totalPaid if service_amount is missing or zero (e.g. older transactions)
+    const rawServiceAmount = Number(metadata?.service_amount);
+    const serviceAmount = (rawServiceAmount && rawServiceAmount > 0) ? rawServiceAmount : totalPaid;
 
     if (!serviceAmount || serviceAmount <= 0) {
       return res.status(400).json({

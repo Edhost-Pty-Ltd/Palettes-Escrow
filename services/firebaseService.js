@@ -1,7 +1,7 @@
 const db = require("../config/firebase");
 const { createSubaccount, updateSubaccount } = require("../services/paystack");
 
-const PLATFORM_PERCENTAGE_CHARGE = 20; // 10% markup + 10% service fee (covers Paystack fees)
+const PLATFORM_PERCENTAGE_CHARGE = 20; // Platform keeps 20%, seller receives 80%
 
 /**
  * Fetch vendor using Firebase UID (document ID)

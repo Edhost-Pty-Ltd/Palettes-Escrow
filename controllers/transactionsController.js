@@ -19,8 +19,7 @@ const { updateEscrowTransaction, getEscrowTransaction } = require('../models/esc
  * 
  * Split payment (20%) is handled automatically by Paystack via the
  * seller's subaccount percentage_charge setting:
- * - 10% markup (platform commission)
- * - 10% service fee (covers Paystack fees)
+ * - Platform keeps 20% of the service amount
  * - Seller receives 80% of the service amount
  * Customer pays the service amount as-is (no markup added to price).
  */
@@ -314,17 +313,13 @@ const getTransactionParties = async (req, res) => {
       {
         role: 'SELLER',
         subaccount: metadata.seller_subaccount,
-        amount_received: serviceAmount, // Seller gets the service amount (85%)
+        amount_received: serviceAmount, // Seller gets 80% of the service amount
         percentage: Math.round((serviceAmount / (result.data.amount / 100)) * 100),
       },
       {
-        role: 'AGENT',
-        amount_received: markupAmount + agentServiceFee, // Agent gets markup + service fee (15%)
+        role: 'PLATFORM',
+        amount_received: markupAmount + agentServiceFee, // Platform keeps 20%
         percentage: Math.round(((markupAmount + agentServiceFee) / (result.data.amount / 100)) * 100),
-        breakdown: {
-          markup_amount: markupAmount, // 5% to cover Paystack fees
-          service_fee: agentServiceFee, // 10% agent service fee
-        }
       },
     ];
 
@@ -532,8 +527,21 @@ const handleCallback = async (req, res) => {
       }
 
       if (!docFound) {
-        console.log('Document not found after max retries.');
-        return res.status(404).json({ error: 'Transaction document not found in Firestore.' });
+        console.error('[handleCallback] Booking not found after max retries for booking_id:', data.metadata?.booking_id);
+        // Write to dead-letter collection for manual review/replay
+        try {
+          await db.collection('webhook_failures').add({
+            event,
+            data,
+            reason: 'booking_not_found',
+            booking_id: data.metadata?.booking_id || null,
+            reference: data.reference || null,
+            failedAt: new Date().toISOString(),
+          });
+        } catch (dlErr) {
+          console.error('[handleCallback] Failed to write to webhook_failures:', dlErr.message);
+        }
+        // Fall through — always return 200 to Paystack so it stops retrying
       }
     }
 
