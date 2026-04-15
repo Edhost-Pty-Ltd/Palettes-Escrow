@@ -1,12 +1,12 @@
 // ============================================================================
-// PAYSTACK SPLIT PAYMENT SERVICE
+// PAYSTACK PAYMENT SERVICE
 // ============================================================================
 // This service handles all Paystack payment operations including:
-// - Split payment calculations (15% markup: 5% + 10%)
 // - Transaction initialization and verification
-// - Refund processing (service amount only)
+// - Refund processing (100% wallet refund or 80% bank refund)
 // - Webhook signature verification
 // - Subaccount management for fund distribution
+// Split payment (20%) is configured on the subaccount via percentage_charge
 // ============================================================================
 
 const axios = require('axios');
@@ -24,99 +24,6 @@ const PAYSTACK_BASE_URL = process.env.PAYSTACK_BASE_URL || 'https://api.paystack
 if (!PAYSTACK_SECRET_KEY) {
   throw new Error('PAYSTACK_SECRET_KEY is required in environment variables');
 }
-
-// ============================================================================
-// SPLIT PAYMENT CALCULATION
-// ============================================================================
-
-/**
- * Calculates split payment breakdown for service bookings
- * 
- * This function implements the 15% markup system where:
- * - 5% markup covers Paystack transaction fees (non-refundable)
- * - 10% agent service fee goes to platform/agents (non-refundable)
- * - Only the original service amount is refundable to customers
- * 
- * @param {number} serviceAmount - The original service cost in ZAR (e.g., 10.00 = R10.00)
- * @returns {Object} Payment breakdown object
- * @returns {number} returns.serviceAmount - Original service cost in ZAR (refundable portion)
- * @returns {number} returns.markupAmount - 5% markup in ZAR to cover Paystack fees (non-refundable)
- * @returns {number} returns.agentServiceFee - 10% agent service fee in ZAR (non-refundable)
- * @returns {number} returns.totalAmount - Total amount customer pays in ZAR (service + markup + agent fee)
- * @returns {number} returns.refundableAmount - Maximum refundable amount in ZAR (equals serviceAmount)
- * 
- * @throws {Error} When serviceAmount is not provided
- * @throws {Error} When serviceAmount is not a number
- * @throws {Error} When serviceAmount is not positive
- * @throws {Error} When serviceAmount is not finite
- * 
- * @example
- * // Calculate split payment for R10.00 service
- * const breakdown = calculateSplitPayment(10.00);
- * // Returns:
- * // {
- * //   serviceAmount: 10.00,     // R10.00 (goes to seller)
- * //   markupAmount: 0.50,       // R0.50 (covers Paystack fees)
- * //   agentServiceFee: 1.00,    // R1.00 (agent commission)
- * //   totalAmount: 11.50,       // R11.50 (customer pays)
- * //   refundableAmount: 10.00   // R10.00 (max refund)
- * // }
- */
-const calculateSplitPayment = (serviceAmount) => {
-  // ========================================
-  // INPUT VALIDATION
-  // ========================================
-  
-  // Check if service amount is provided
-  if (!serviceAmount) {
-    throw new Error("Service amount is required");
-  }
-  
-  // Ensure service amount is a number
-  if (typeof serviceAmount !== "number") {
-    throw new Error("Service amount must be a number");
-  }
-  
-  // Ensure service amount is positive
-  if (serviceAmount <= 0) {
-    throw new Error("Service amount must be a positive number");
-  }
-  
-  // Ensure service amount is finite (not Infinity or NaN)
-  if (!Number.isFinite(serviceAmount)) {
-    throw new Error("Service amount must be a finite number");
-  }
-  
-  // ========================================
-  // SPLIT PAYMENT CALCULATION (IN RANDS)
-  // ========================================
-  
-  // Define percentage rates for split payment
-  const markupPercentage = 5;           // 5% to cover Paystack fees
-  const agentServiceFeePercentage = 10; // 10% agent service fee
-  
-  // Calculate markup amount (5% of service amount) - rounded to 2 decimal places
-  const markupAmount = Math.round(serviceAmount * (markupPercentage / 100) * 100) / 100;
-  
-  // Calculate agent service fee (10% of service amount) - rounded to 2 decimal places
-  const agentServiceFee = Math.round(serviceAmount * (agentServiceFeePercentage / 100) * 100) / 100;
-  
-  // Calculate total amount customer pays (all in ZAR)
-  // Total = Original Service + Markup + Agent Fee
-  const totalAmount = Math.round((serviceAmount + markupAmount + agentServiceFee) * 100) / 100;
-  
-  // ========================================
-  // RETURN PAYMENT BREAKDOWN (ALL IN ZAR)
-  // ========================================
-  
-  return {
-    serviceAmount,                    // Original service cost in ZAR (85% - goes to seller)
-    markupAmount,                     // 5% markup in ZAR (non-refundable - covers Paystack fees)
-    agentServiceFee,                  // 10% agent fee in ZAR (non-refundable - platform commission)
-    totalAmount,                      // Total customer pays in ZAR (100%)
-    refundableAmount: serviceAmount   // Only service amount is refundable (in ZAR)
-  };
-};
 
 // ============================================================================
 // PAYSTACK API HELPER FUNCTIONS
@@ -382,6 +289,54 @@ const updateSubaccount = async (subaccountCode, updateData) => {
 };
 
 // ============================================================================
+// TRANSFER MANAGEMENT (used for escrow payouts to professionals)
+// ============================================================================
+
+/**
+ * Create a transfer recipient (saved bank account destination)
+ * Call once per vendor, store the recipient_code on their user doc.
+ *
+ * @param {Object} data
+ * @param {string} data.name - Account holder name
+ * @param {string} data.account_number
+ * @param {string} data.bank_code - Paystack bank code (branchNumber)
+ * @param {string} data.currency - e.g. 'ZAR'
+ */
+const createTransferRecipient = async ({ name, account_number, bank_code, currency = 'ZAR' }) => {
+  if (!name || !account_number || !bank_code) {
+    throw new Error('name, account_number, and bank_code are required');
+  }
+  return await makePaystackRequest('POST', '/transferrecipient', {
+    type: 'nuban',
+    name,
+    account_number,
+    bank_code,
+    currency,
+  });
+};
+
+/**
+ * Initiate a transfer to a recipient
+ *
+ * @param {Object} data
+ * @param {number} data.amount - Amount in ZAR (converted to kobo internally)
+ * @param {string} data.recipient - recipient_code e.g. 'RCP_xxxxxxxxx'
+ * @param {string} data.reason - Description shown on transfer
+ */
+const initiateTransfer = async ({ amount, recipient, reason = 'Escrow payout' }) => {
+  if (!amount || !recipient) {
+    throw new Error('amount and recipient are required');
+  }
+  return await makePaystackRequest('POST', '/transfer', {
+    source: 'balance',
+    amount: zarToKobo(amount),
+    recipient,
+    reason,
+    currency: 'ZAR',
+  });
+};
+
+// ============================================================================
 // WEBHOOK VERIFICATION
 // ============================================================================
 
@@ -539,9 +494,6 @@ const formatAmount = (amount, currency = 'ZAR') => {
 // ============================================================================
 
 module.exports = {
-  // Split payment calculation
-  calculateSplitPayment,
-  
   // Transaction management
   initializeTransaction,
   verifyTransaction,
@@ -555,6 +507,10 @@ module.exports = {
   createSubaccount,
   listSubaccounts,
   updateSubaccount,
+
+  // Transfer management (escrow payouts)
+  createTransferRecipient,
+  initiateTransfer,
   
   // Customer management
   createCustomer,

@@ -1,5 +1,5 @@
 const paystackService = require('../services/paystack');
-const db = require('../firebase');
+const db = require('../config/firebase');
 
 /**
  * Start allocation delivery
@@ -29,17 +29,18 @@ const allocationStartDelivery = async (req, res) => {
     const agentAmount = Math.floor(amount * 0.1);
     const sellerAmount = Math.floor(amount * 0.9);
 
-    // Capture the pre-authorization with split
-    const splitConfig = bookingData.seller_subaccount ? {
-      subaccount: bookingData.seller_subaccount,
-      transaction_charge: agentAmount * 100, // Convert to kobo
-    } : {};
-
-    const result = await paystackService.capturePreauthorization(
+    // Charge the saved authorization (capture funds)
+    const chargePayload = {
       authorization_code,
-      amount * 100, // Convert to kobo
-      splitConfig
-    );
+      email: bookingData.email || bookingData.buyerEmail,
+      amount: amount * 100, // Convert to kobo
+      ...(bookingData.seller_subaccount && {
+        subaccount: bookingData.seller_subaccount,
+        transaction_charge: agentAmount * 100,
+      }),
+    };
+
+    const result = await paystackService.makePaystackRequest('POST', '/transaction/charge_authorization', chargePayload);
 
     console.log('Allocation delivery started successfully:', result);
 
@@ -123,8 +124,8 @@ const getAllocationDetails = async (req, res) => {
           state: result.data.status === 'success' ? 'COMPLETED' : 'PENDING',
           calculation: {
             value: result.data.amount / 100,
-            payout: Math.floor((result.data.amount / 100) * 0.9), // 90% to seller
-            fee: Math.floor((result.data.amount / 100) * 0.1), // 10% agent fee
+            payout: Math.floor((result.data.amount / 100) * 0.8), // 80% to seller
+            fee: Math.floor((result.data.amount / 100) * 0.2), // 20% platform
             refund: 0,
           },
         },

@@ -139,7 +139,7 @@ const getTokenDetails = async (req, res) => {
   try {
     const { id } = req.body;
 
-    const result = await paystackService.getSubaccountDetails(id);
+    const result = await paystackService.makePaystackRequest('GET', `/subaccount/${id}`);
 
     // Emit event (same as TradeSafe)
     callbackEvents.emit('tokenCreated', result);

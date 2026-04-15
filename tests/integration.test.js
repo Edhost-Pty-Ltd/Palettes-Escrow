@@ -21,7 +21,7 @@ jest.mock('../firebase');
 jest.mock('../events');
 
 // Load modules after mocking
-const db = require('../firebase');
+const db = require('../config/firebase');
 const callbackEvents = require('../events');
 const refundsRouter = require('../routes/refunds');
 const transactionsController = require('../controllers/transactionsController');

@@ -2,244 +2,128 @@
 // PAYSTACK TRANSACTION CONTROLLER
 // ============================================================================
 // This controller handles all payment-related operations including:
-// - Creating transactions with split payment logic
-// - Processing refunds (service amount only)
+// - Creating transactions (split handled by subaccount percentage_charge: 20%)
+// - Processing refunds (100% wallet or 80% bank)
 // - Handling Paystack webhooks
 // - Managing payment allocations and parties
 // ============================================================================
 
 const callbackEvents = require('../events');
 const paystackService = require('../services/paystack');
-const db = require('../firebase');
+const db = require('../config/firebase');
 const crypto = require('crypto');
+const { updateEscrowTransaction, getEscrowTransaction } = require('../models/escrowModel');
 
 /**
- * Create transaction with payment link using split payment logic
+ * Create transaction with payment link
  * 
- * This function:
- * 1. Validates all input parameters
- * 2. Calculates split payment breakdown (15% markup)
- * 3. Creates Paystack transaction with total amount
- * 4. Stores breakdown in metadata for refund processing
- * 5. Returns payment link and breakdown for mobile app
- * 
- * Replaces: TradeSafe createTransactionWithLink
- * Uses split payment system where customer pays service + 5% + 10%
+ * Split payment (20%) is handled automatically by Paystack via the
+ * seller's subaccount percentage_charge setting:
+ * - Platform keeps 20% of the service amount
+ * - Seller receives 80% of the service amount
+ * Customer pays the service amount as-is (no markup added to price).
  */
 const createTransactionWithLink = async (req, res) => {
   try {
-    // ========================================
-    // EXTRACT AND VALIDATE INPUT DATA
-    // ========================================
-    
-    // Extract the input from the request body
-    // userId should come from the request body (Firebase UID from client)
-    const { input, userId } = req.body;
+    const { input } = req.body;
+    const userId = req.user?.uid;
 
-    // Check if input data is provided
     if (!input) {
-      return res.status(400).json({ 
-        error: 'Validation failed', 
-        message: 'Payment input data is required' 
-      });
+      return res.status(400).json({ error: 'Validation failed', message: 'Payment input data is required' });
     }
 
-    // ========================================
-    // VALIDATE SERVICE AMOUNT
-    // ========================================
-    
-    // Check if service amount is provided
+    // Validate service amount
     if (!input.amount) {
-      return res.status(400).json({ 
-        error: 'Validation failed', 
-        message: 'Service amount is required' 
-      });
+      return res.status(400).json({ error: 'Validation failed', message: 'Service amount is required' });
     }
-
-    // Ensure service amount is a number
     if (typeof input.amount !== 'number') {
-      return res.status(400).json({ 
-        error: 'Validation failed', 
-        message: 'Service amount must be a number' 
-      });
+      return res.status(400).json({ error: 'Validation failed', message: 'Service amount must be a number' });
     }
-
-    // Ensure service amount is positive
     if (input.amount <= 0) {
-      return res.status(400).json({ 
-        error: 'Validation failed', 
-        message: 'Service amount must be a positive number' 
-      });
+      return res.status(400).json({ error: 'Validation failed', message: 'Service amount must be a positive number' });
     }
-
-    // Ensure service amount is finite
     if (!Number.isFinite(input.amount)) {
-      return res.status(400).json({ 
-        error: 'Validation failed', 
-        message: 'Service amount must be a finite number' 
-      });
+      return res.status(400).json({ error: 'Validation failed', message: 'Service amount must be a finite number' });
     }
 
-    // ========================================
-    // VALIDATE BUYER EMAIL
-    // ========================================
-    
-    // Get buyer email from input (support both formats)
+    // Validate buyer email
     const buyerEmail = input.buyer?.email || input.email;
     if (!buyerEmail) {
-      return res.status(400).json({ 
-        error: 'Validation failed', 
-        message: 'Buyer email is required' 
-      });
+      return res.status(400).json({ error: 'Validation failed', message: 'Buyer email is required' });
     }
-
-    // Ensure email is a string
     if (typeof buyerEmail !== 'string') {
-      return res.status(400).json({ 
-        error: 'Validation failed', 
-        message: 'Buyer email must be a string' 
-      });
+      return res.status(400).json({ error: 'Validation failed', message: 'Buyer email must be a string' });
     }
-
-    // Validate email format using regex
     const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
     if (!emailRegex.test(buyerEmail)) {
-      return res.status(400).json({ 
-        error: 'Validation failed', 
-        message: 'Buyer email must be a valid email address' 
-      });
+      return res.status(400).json({ error: 'Validation failed', message: 'Buyer email must be a valid email address' });
     }
 
-    // ========================================
-    // VALIDATE OPTIONAL FIELDS
-    // ========================================
-    
-    // Validate seller subaccount if provided
+    // Validate optional fields
     if (input.seller_subaccount && typeof input.seller_subaccount !== 'string') {
-      return res.status(400).json({ 
-        error: 'Validation failed', 
-        message: 'Seller subaccount must be a string' 
-      });
+      return res.status(400).json({ error: 'Validation failed', message: 'Seller subaccount must be a string' });
     }
-
-    // Validate booking ID if provided
     if (input.booking_id && typeof input.booking_id !== 'string') {
-      return res.status(400).json({ 
-        error: 'Validation failed', 
-        message: 'Booking ID must be a string' 
-      });
+      return res.status(400).json({ error: 'Validation failed', message: 'Booking ID must be a string' });
     }
-
-    // Validate title if provided
     if (input.title && typeof input.title !== 'string') {
-      return res.status(400).json({ 
-        error: 'Validation failed', 
-        message: 'Title must be a string' 
-      });
+      return res.status(400).json({ error: 'Validation failed', message: 'Title must be a string' });
     }
-
-    // Validate description if provided
     if (input.description && typeof input.description !== 'string') {
-      return res.status(400).json({ 
-        error: 'Validation failed', 
-        message: 'Description must be a string' 
-      });
+      return res.status(400).json({ error: 'Validation failed', message: 'Description must be a string' });
     }
-
-    // Validate buyer information if provided
     if (input.buyer) {
-      // Validate buyer given name if provided
       if (input.buyer.givenName && typeof input.buyer.givenName !== 'string') {
-        return res.status(400).json({ 
-          error: 'Validation failed', 
-          message: 'Buyer given name must be a string' 
-        });
+        return res.status(400).json({ error: 'Validation failed', message: 'Buyer given name must be a string' });
       }
-      
-      // Validate buyer family name if provided
       if (input.buyer.familyName && typeof input.buyer.familyName !== 'string') {
-        return res.status(400).json({ 
-          error: 'Validation failed', 
-          message: 'Buyer family name must be a string' 
-        });
+        return res.status(400).json({ error: 'Validation failed', message: 'Buyer family name must be a string' });
       }
     }
 
-    // ========================================
-    // CALCULATE SPLIT PAYMENT BREAKDOWN
-    // ========================================
-    
-    let breakdown;
-    
-    try {
-      // Calculate the 15% markup breakdown:
-      // - Service amount: goes to seller (refundable)
-      // - 5% markup: covers Paystack fees (non-refundable)
-      // - 10% agent fee: platform commission (non-refundable)
-      breakdown = paystackService.calculateSplitPayment(input.amount);
-    } catch (calculationError) {
-      // Return error if calculation fails (invalid input)
-      return res.status(400).json({ 
-        error: 'Payment calculation failed', 
-        message: calculationError.message 
-      });
-    }
-
-    // ========================================
-    // PREPARE PAYSTACK PAYMENT DATA
-    // ========================================
-    
-    // Prepare payment data for Paystack API
+    // Prepare payment data — pass service amount directly, subaccount handles the 20% split
     const paymentData = {
-      email: buyerEmail,                          // Customer email for payment
-      amount: breakdown.totalAmount,              // Total amount in ZAR (customer pays service + 15%)
-      currency: 'ZAR',                           // South African Rand
-      callback_url: process.env.PAYSTACK_CALLBACK_URL, // Webhook URL for payment notifications
-      
-      // Store all payment details in metadata for future reference
+      email: buyerEmail,
+      amount: input.amount,                             // Customer pays the service amount as-is
+      currency: 'ZAR',
+      callback_url: process.env.PAYSTACK_CALLBACK_URL,
       metadata: {
-        // Booking information
-        title: input.title,                       // Service title
-        description: input.description,           // Service description
-        seller_subaccount: input.seller_subaccount, // Seller's Paystack subaccount
-        booking_id: input.booking_id,             // Unique booking identifier
-        
-        // Customer information
-        buyer_email: buyerEmail,                  // Customer email
-        buyer_name: `${input.buyer?.givenName || ''} ${input.buyer?.familyName || ''}`.trim(), // Customer name
-        firebaseUID: userId || '',                 // Firebase UID for refund filtering
-        
-        // CRITICAL: Store breakdown amounts for refund processing
-        service_amount: breakdown.serviceAmount,   // Original service cost (REFUNDABLE)
-        markup_amount: breakdown.markupAmount,     // 5% markup (NON-REFUNDABLE)
-        agent_service_fee: breakdown.agentServiceFee, // 10% agent fee (NON-REFUNDABLE)
-        total_amount: breakdown.totalAmount,       // Total customer pays
-        markup_percentage: 5,                      // Markup percentage for reference
-        agent_service_fee_percentage: 10,          // Agent fee percentage for reference
+        title: input.title,
+        description: input.description,
+        seller_subaccount: input.seller_subaccount,
+        booking_id: input.booking_id,
+        escrow_id: input.escrow_id || null,
+        buyer_email: buyerEmail,
+        buyer_name: `${input.buyer?.givenName || ''} ${input.buyer?.familyName || ''}`.trim(),
+        firebaseUID: userId || '',
+        service_amount: input.amount,                   // Stored for refund reference
       },
     };
 
-    // ========================================
-    // CONFIGURE SUBACCOUNT FOR SPLIT PAYMENT
-    // ========================================
-    if (input.seller_subaccount) {
-      paymentData.subaccount = input.seller_subaccount;
-      // Agent gets the markup amount + agent service fee (in ZAR)
-      // Seller gets the original service amount
-      paymentData.transaction_charge = (breakdown.markupAmount + breakdown.agentServiceFee);
+    // Attach seller subaccount — Paystack applies percentage_charge (20%) automatically
+    // If not provided directly, resolve from the escrow record
+    let sellerSubaccount = input.seller_subaccount;
+
+    if (!sellerSubaccount && input.escrow_id) {
+      console.log(`No seller_subaccount provided, resolving from escrow: ${input.escrow_id}`);
+      const escrow = await getEscrowTransaction(input.escrow_id);
+      sellerSubaccount = escrow?.metadata?.subaccountCode;
+      console.log(`Resolved subaccountCode from escrow: ${sellerSubaccount}`);
     }
 
-    // Step 1: Use regular transaction with split payment
-    let result;
-    console.log('Initializing transaction with split payment...');
-    console.log(`Service Amount: ${breakdown.serviceAmount} ZAR`);
-    console.log(`Markup (5%): ${breakdown.markupAmount} ZAR`);
-    console.log(`Agent Service Fee (10%): ${breakdown.agentServiceFee} ZAR`);
-    console.log(`Total Customer Pays: ${breakdown.totalAmount} ZAR`);
-    console.log(`Agent Gets: ${breakdown.markupAmount + breakdown.agentServiceFee} ZAR (15%)`);
-    console.log(`Seller Gets: ${breakdown.serviceAmount} ZAR (85%)`);
-    
-    result = await paystackService.initializeTransaction(paymentData);
+    if (sellerSubaccount) {
+      paymentData.subaccount = sellerSubaccount;
+      paymentData.metadata.seller_subaccount = sellerSubaccount;
+    } else {
+      console.warn('No seller subaccount found — transaction will not be split');
+    }
+
+    console.log('Initializing transaction...');
+    console.log(`Service Amount: ${input.amount} ZAR`);
+    console.log(`Platform takes: 20% (10% markup + 10% service fee)`);
+    console.log(`Seller receives: 80% = ${Math.round(input.amount * 0.80 * 100) / 100} ZAR`);
+
+    const result = await paystackService.initializeTransaction(paymentData);
 
     if (!result || !result.status || !result.data) {
       console.log('Payment initialization failed:', result);
@@ -248,17 +132,11 @@ const createTransactionWithLink = async (req, res) => {
 
     console.log('Payment initialized:', result);
 
-    // Step 2: Return the payment link with breakdown
-    res.json({ 
+    res.json({
       paymentLink: result.data.authorization_url,
       reference: result.data.reference,
-      breakdown: {
-        serviceAmount: breakdown.serviceAmount,
-        markupAmount: breakdown.markupAmount,
-        agentServiceFee: breakdown.agentServiceFee,
-        totalAmount: breakdown.totalAmount,
-        currency: 'ZAR'
-      }
+      amount: input.amount,
+      currency: 'ZAR',
     });
 
   } catch (error) {
@@ -435,17 +313,13 @@ const getTransactionParties = async (req, res) => {
       {
         role: 'SELLER',
         subaccount: metadata.seller_subaccount,
-        amount_received: serviceAmount, // Seller gets the service amount (85%)
+        amount_received: serviceAmount, // Seller gets 80% of the service amount
         percentage: Math.round((serviceAmount / (result.data.amount / 100)) * 100),
       },
       {
-        role: 'AGENT',
-        amount_received: markupAmount + agentServiceFee, // Agent gets markup + service fee (15%)
+        role: 'PLATFORM',
+        amount_received: markupAmount + agentServiceFee, // Platform keeps 20%
         percentage: Math.round(((markupAmount + agentServiceFee) / (result.data.amount / 100)) * 100),
-        breakdown: {
-          markup_amount: markupAmount, // 5% to cover Paystack fees
-          service_fee: agentServiceFee, // 10% agent service fee
-        }
       },
     ];
 
@@ -477,8 +351,8 @@ const cancelTransaction = async (req, res) => {
       return res.status(400).json({ error: 'Authorization code is required to cancel pre-authorization' });
     }
 
-    // Cancel the pre-authorization (release held funds)
-    const result = await paystackService.cancelPreauthorization(authorization_code);
+    // Deactivate the authorization (Paystack equivalent of cancelling pre-auth)
+    const result = await paystackService.makePaystackRequest('POST', '/customer/deactivate_authorization', { authorization_code });
 
     console.log('Transaction cancelled:', comment);
 
@@ -653,8 +527,61 @@ const handleCallback = async (req, res) => {
       }
 
       if (!docFound) {
-        console.log('Document not found after max retries.');
-        return res.status(404).json({ error: 'Transaction document not found in Firestore.' });
+        console.error('[handleCallback] Booking not found after max retries for booking_id:', data.metadata?.booking_id);
+        // Write to dead-letter collection for manual review/replay
+        try {
+          await db.collection('webhook_failures').add({
+            event,
+            data,
+            reason: 'booking_not_found',
+            booking_id: data.metadata?.booking_id || null,
+            reference: data.reference || null,
+            failedAt: new Date().toISOString(),
+          });
+        } catch (dlErr) {
+          console.error('[handleCallback] Failed to write to webhook_failures:', dlErr.message);
+        }
+        // Fall through — always return 200 to Paystack so it stops retrying
+      }
+    }
+
+    // Handle refund status updates from Paystack
+    if (event === 'refund.processed' || event === 'refund.failed') {
+      try {
+        const refundStatus = event === 'refund.processed' ? 'processed' : 'failed';
+        const refundRef = data.transaction_reference || data.reference;
+
+        const refundSnap = await db.collection('refunds')
+          .where('reference', '==', refundRef)
+          .limit(1)
+          .get();
+
+        if (!refundSnap.empty) {
+          await refundSnap.docs[0].ref.update({
+            status: refundStatus,
+            updatedAt: new Date().toISOString(),
+          });
+          console.log(`Refund record updated to '${refundStatus}' for reference: ${refundRef}`);
+        } else {
+          console.warn('No refund record found in Firestore for reference:', refundRef);
+        }
+      } catch (refundUpdateError) {
+        console.error('Failed to update refund status:', refundUpdateError.message);
+      }
+    }
+
+    // Update escrow if escrow_id was passed in metadata
+    if (event === 'charge.success' && data.metadata?.escrow_id) {
+      try {
+        await updateEscrowTransaction(data.metadata.escrow_id, {
+          paymentStatus: 'paid',
+          reference: data.reference,
+          paystackTransactionId: data.id,
+          status: 'active',
+        });
+        console.log('Escrow updated for ID:', data.metadata.escrow_id);
+      } catch (escrowError) {
+        console.error('Failed to update escrow:', escrowError.message);
       }
     }
 
@@ -899,6 +826,4 @@ module.exports = {
   cancelTransaction, 
   deleteTransaction,
   handleCallback,
-  refundTransaction,
-  listRefunds,
 };

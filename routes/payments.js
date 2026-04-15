@@ -11,7 +11,6 @@ const express = require('express');
 const { 
   handleCallback, 
   createTransactionWithLink, 
-  refundTransaction
 } = require('../controllers/transactionsController');
 
 const { 
@@ -27,8 +26,7 @@ const {
 } = require('../controllers/allocationsController');
 
 const { 
-  verifyPayment,
-  handleWebhook 
+  verifyPayment
 } = require('../controllers/paymentController');
 
 // Import middleware
@@ -49,15 +47,14 @@ router.post('/login', login);
 // ============================================================================
 // CORE PAYMENT ENDPOINTS
 // ============================================================================
-
+/// new split logic using subaccount
+const {createSubaccount} =require("../controllers/createSubaccount")
+router.post("/create-subaccount", authenticateJWT, createSubaccount)
 // Create payment with split logic
 router.post('/transactionCreate', authenticateJWT, createTransactionWithLink);
 
 // Verify payment status (NO AUTH REQUIRED - for frontend integration)
 router.get('/verify/:reference', verifyPayment);
-
-// Process refunds (service amount only)
-router.post('/refund', authenticateJWT, refundTransaction);
 
 // ============================================================================
 // TOKEN/SUBACCOUNT MANAGEMENT - REQUIRE AUTH
@@ -91,16 +88,16 @@ router.get('/health', (req, res) => {
     message: 'Paystack payment API is running',
     endpoints: {
       auth: ['POST /signup', 'POST /login'],
-      payment: ['POST /transactionCreate', 'GET /verify/:reference', 'POST /refund'],
+      payment: ['POST /transactionCreate', 'GET /verify/:reference'],
       token: ['POST /tokenCreate', 'POST /updateToken', 'POST /tokenDetails'],
       allocation: ['POST /allocationStartDelivery', 'POST /allocationAcceptDelivery'],
-      webhook: ['POST /callback']
+      webhook: ['POST /callback'],
+      refunds: ['POST /api/refunds', 'GET /api/refunds']
     },
     split_payment: {
-      markup_percentage: 5,
-      agent_fee_percentage: 10,
-      total_markup: 15,
-      refund_policy: 'Service amount only'
+      platform_percentage: 20,
+      seller_percentage: 80,
+      refund_policy: 'Service amount only (80% of total)'
     }
   });
 });
