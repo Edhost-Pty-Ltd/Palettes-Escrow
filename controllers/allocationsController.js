@@ -1,11 +1,6 @@
 const paystackService = require('../services/paystack');
 const db = require('../config/firebase');
 
-/**
- * Start allocation delivery
- * Replaces: TradeSafe allocationStartDelivery
- * Captures the pre-authorized funds (charges the customer)
- */
 const allocationStartDelivery = async (req, res) => {
   try {
     const { id, authorization_code, booking_id } = req.body;
@@ -14,7 +9,6 @@ const allocationStartDelivery = async (req, res) => {
       return res.status(400).json({ error: 'Authorization code is required' });
     }
 
-    // Get booking details to calculate split
     const bookingRef = db.collection('appointments_bookings').doc(booking_id);
     const bookingDoc = await bookingRef.get();
 
@@ -24,16 +18,14 @@ const allocationStartDelivery = async (req, res) => {
 
     const bookingData = bookingDoc.data();
     const amount = bookingData.balance || bookingData.amount;
-    
-    // Calculate agent commission (10% same as TradeSafe)
+
     const agentAmount = Math.floor(amount * 0.1);
     const sellerAmount = Math.floor(amount * 0.9);
 
-    // Charge the saved authorization (capture funds)
     const chargePayload = {
       authorization_code,
       email: bookingData.email || bookingData.buyerEmail,
-      amount: amount * 100, // Convert to kobo
+      amount: amount * 100,
       ...(bookingData.seller_subaccount && {
         subaccount: bookingData.seller_subaccount,
         transaction_charge: agentAmount * 100,
@@ -44,13 +36,11 @@ const allocationStartDelivery = async (req, res) => {
 
     console.log('Allocation delivery started successfully:', result);
 
-    // Update booking status
     await bookingRef.update({
       status: 'IN_DELIVERY',
       deliveryStartedAt: new Date().toISOString(),
     });
 
-    // Format response similar to TradeSafe
     res.json({
       data: {
         allocationStartDelivery: {
@@ -65,16 +55,10 @@ const allocationStartDelivery = async (req, res) => {
   }
 };
 
-/**
- * Accept allocation delivery
- * Replaces: TradeSafe allocationAcceptDelivery
- * Marks delivery as accepted (funds already captured in startDelivery)
- */
 const allocationAcceptDelivery = async (req, res) => {
   try {
     const { id, booking_id } = req.body;
 
-    // Update booking status to completed
     if (booking_id) {
       const bookingRef = db.collection('appointments_bookings').doc(booking_id);
       await bookingRef.update({
@@ -85,7 +69,6 @@ const allocationAcceptDelivery = async (req, res) => {
 
     console.log('Allocation delivery accepted successfully');
 
-    // Format response similar to TradeSafe
     res.json({
       data: {
         allocationAcceptDelivery: {
@@ -100,22 +83,16 @@ const allocationAcceptDelivery = async (req, res) => {
   }
 };
 
-/**
- * Get allocation details
- * Replaces: TradeSafe getAllocationDetails
- */
 const getAllocationDetails = async (req, res) => {
   try {
     const { id, reference } = req.body;
 
-    // Verify transaction to get allocation details
     const result = await paystackService.verifyTransaction(reference || id);
 
     if (!result || !result.status) {
       return res.status(404).json({ error: 'Allocation not found' });
     }
 
-    // Format response similar to TradeSafe
     res.json({
       data: {
         allocation: {
@@ -124,8 +101,8 @@ const getAllocationDetails = async (req, res) => {
           state: result.data.status === 'success' ? 'COMPLETED' : 'PENDING',
           calculation: {
             value: result.data.amount / 100,
-            payout: Math.floor((result.data.amount / 100) * 0.8), // 80% to seller
-            fee: Math.floor((result.data.amount / 100) * 0.2), // 20% platform
+            payout: Math.floor((result.data.amount / 100) * 0.8),
+            fee: Math.floor((result.data.amount / 100) * 0.2),
             refund: 0,
           },
         },
@@ -137,8 +114,8 @@ const getAllocationDetails = async (req, res) => {
   }
 };
 
-module.exports = { 
-  allocationStartDelivery, 
-  allocationAcceptDelivery, 
-  getAllocationDetails 
+module.exports = {
+  allocationStartDelivery,
+  allocationAcceptDelivery,
+  getAllocationDetails
 };

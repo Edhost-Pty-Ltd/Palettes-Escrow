@@ -1,11 +1,5 @@
 const paystackService = require('../services/paystack');
 
-/**
- * GET /api/payments/verify/:reference
- *
- * Verify payment status with Paystack.
- * No auth required — used by the frontend after redirect from Paystack checkout.
- */
 const verifyPayment = async (req, res) => {
   try {
     const { reference } = req.params;

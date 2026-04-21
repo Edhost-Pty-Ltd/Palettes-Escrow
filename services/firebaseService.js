@@ -1,17 +1,13 @@
 const db = require("../config/firebase");
 const { createSubaccount, updateSubaccount } = require("../services/paystack");
 
-const PLATFORM_PERCENTAGE_CHARGE = 20; // Platform keeps 20%, seller receives 80%
+const PLATFORM_PERCENTAGE_CHARGE = 20;
 
-/**
- * Fetch vendor using Firebase UID (document ID)
- */
 const getVendorSubaccount = async (userId) => {
   if (!userId) throw new Error("userId is required");
 
   console.log("[getVendorSubaccount] Received userId:", userId);
 
-  // Query by professionalVendorID field
   const querySnap = await db.collection("users")
     .where("professionalVendorID", "==", userId)
     .limit(1)
@@ -27,7 +23,6 @@ const getVendorSubaccount = async (userId) => {
   console.log("[getVendorSubaccount] Document found. role:", vendorData.role, "| userID field:", vendorData.userID, "| professionalVendorID:", vendorData.professionalVendorID);
   console.log("[getVendorSubaccount] accountDetails:", JSON.stringify(vendorData.accountDetails));
 
-  // 🔥 Ensure it's actually a professional
   if (vendorData.role !== "professional") {
     console.log("[getVendorSubaccount] Role mismatch — expected 'professional', got:", vendorData.role);
     throw new Error("User is not a professional");
@@ -44,7 +39,6 @@ const getVendorSubaccount = async (userId) => {
       throw new Error(`Vendor ${userId} has incomplete banking details`);
     }
 
-    // Prefer paystackBankCode (correct Paystack bank identifier) over branchNumber
     const bankCode = accountDetails.paystackBankCode || accountDetails.branchNumber;
     if (!accountDetails.paystackBankCode) {
       console.warn(`[getVendorSubaccount] paystackBankCode not set for vendor ${userId} — falling back to branchNumber. This may cause subaccount issues. Vendor should set paystackBankCode via GET /api/payments/banks.`);
@@ -69,35 +63,29 @@ const getVendorSubaccount = async (userId) => {
     subaccountCode = result.data.subaccount_code;
     console.log("[getVendorSubaccount] Subaccount created:", subaccountCode);
 
-    // Persist subaccount code and current percentage to Firestore
     await vendorSnap.ref.update({
       paystack_subaccount_code: subaccountCode,
       paystack_percentage_charge: PLATFORM_PERCENTAGE_CHARGE,
     });
   } else {
-    // Lazy migration: update existing subaccounts that are on an old percentage
     const storedPercentage = vendorData.paystack_percentage_charge;
     if (storedPercentage !== PLATFORM_PERCENTAGE_CHARGE) {
-      // Run migration in the background — never block or fail the main escrow flow
       try {
         console.log(`[getVendorSubaccount] Migrating subaccount ${subaccountCode} from ${storedPercentage}% to ${PLATFORM_PERCENTAGE_CHARGE}%`);
         await updateSubaccount(subaccountCode, { percentage_charge: PLATFORM_PERCENTAGE_CHARGE });
-        // Only update Firestore after Paystack confirms the change
         await vendorSnap.ref.update({ paystack_percentage_charge: PLATFORM_PERCENTAGE_CHARGE });
         console.log(`[getVendorSubaccount] Migration complete for ${subaccountCode}`);
       } catch (migrationErr) {
-        // Log and continue — the subaccount still works, just on the old percentage
         console.error(`[getVendorSubaccount] Migration failed for ${subaccountCode}:`, migrationErr.message);
       }
     }
   }
 
-  // Use the Firestore document ID as the authoritative Firebase Auth UID
   const vendorAuthUID = vendorSnap.id;
   console.log("[getVendorSubaccount] Returning:", { vendorAuthUID, professionalVendorID: vendorData.professionalVendorID, subaccountCode });
 
   return {
-    userID: vendorAuthUID, // Firestore doc ID = Firebase Auth UID
+    userID: vendorAuthUID,
     professionalVendorID: vendorData.professionalVendorID,
     subaccountCode
   };

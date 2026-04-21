@@ -1,7 +1,7 @@
 const db = require("../config/firebase");
 const { createSubaccount: paystackCreateSubaccount } = require("../services/paystack");
 
-const PLATFORM_PERCENTAGE_CHARGE = 20; // must match firebaseService.js
+const PLATFORM_PERCENTAGE_CHARGE = 20;
 
 const createSubaccount = async (req, res) => {
   const { vendorId, business_name, account_number, bank_code, currency = "ZAR" } = req.body;
@@ -15,7 +15,6 @@ const createSubaccount = async (req, res) => {
 
   try {
     if (vendorId) {
-      // Query users collection by professionalVendorID field — consistent with the rest of the app
       const querySnap = await db.collection("users")
         .where("professionalVendorID", "==", vendorId)
         .limit(1)
@@ -27,7 +26,6 @@ const createSubaccount = async (req, res) => {
 
       const vendorSnap = querySnap.docs[0];
 
-      // Return cached code if already stored
       if (vendorSnap.data().paystack_subaccount_code) {
         return res.json({
           success: true,
@@ -50,17 +48,7 @@ const createSubaccount = async (req, res) => {
       return res.json({ success: true, subaccount_code, cached: false });
     }
 
-    // No vendorId — create directly without Firestore
-    const result = await paystackCreateSubaccount({
-      business_name,
-      settlement_bank: bank_code,
-      account_number,
-      percentage_charge: PLATFORM_PERCENTAGE_CHARGE,
-      currency,
-    });
-    const subaccount_code = result.data.subaccount_code;
-
-    return res.json({ success: true, subaccount_code, cached: false });
+    
 
   } catch (error) {
     console.error(error.response?.data || error.message);

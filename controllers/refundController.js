@@ -2,7 +2,6 @@ const db = require('../config/firebase');
 const { FieldValue } = require('firebase-admin/firestore');
 const paystackService = require('../services/paystack');
 
-// Helper: parse metadata whether it's a string or object
 const parseMetadata = (metadata) => {
   if (!metadata) return null;
   if (typeof metadata === 'string') {
@@ -11,9 +10,6 @@ const parseMetadata = (metadata) => {
   return metadata;
 };
 
-// ============================================================================
-// POST — Initiate a refund (service amount only)
-// ============================================================================
 const initiateRefund = async (req, res) => {
   try {
     const { reference, transactionId, amount } = req.body;
@@ -23,7 +19,6 @@ const initiateRefund = async (req, res) => {
       return res.status(400).json({ message: 'Transaction reference is required' });
     }
 
-    // Step 1: Guard against duplicate refunds
     const existingRefund = await db.collection('refunds')
       .where('reference', '==', txRef)
       .limit(1)
@@ -33,7 +28,6 @@ const initiateRefund = async (req, res) => {
       return res.status(409).json({ message: `A refund for reference ${txRef} has already been processed` });
     }
 
-    // Step 2: Verify transaction via shared paystack service
     const verifyResult = await paystackService.verifyTransaction(txRef);
     const transaction = verifyResult?.data;
 
@@ -43,13 +37,9 @@ const initiateRefund = async (req, res) => {
       });
     }
 
-    // Step 3: Extract refundable amount from metadata
-    // With the subaccount model, Paystack handles the platform split automatically.
-    // Only service_amount is stored — markup/fee fields are not applicable here.
     const metadata = parseMetadata(transaction.metadata);
     const totalPaid = transaction.amount / 100;
 
-    // Fall back to totalPaid if service_amount is missing or zero (e.g. older transactions)
     const rawServiceAmount = Number(metadata?.service_amount);
     const serviceAmount = (rawServiceAmount && rawServiceAmount > 0) ? rawServiceAmount : totalPaid;
 
@@ -59,7 +49,6 @@ const initiateRefund = async (req, res) => {
       });
     }
 
-    // Step 3: Determine refund amount — capped at service amount
     let refundAmount;
     if (amount !== undefined && amount !== null) {
       if (typeof amount !== 'number' || amount <= 0) {
@@ -75,7 +64,6 @@ const initiateRefund = async (req, res) => {
       refundAmount = serviceAmount;
     }
 
-    // Step 4: Submit refund to Paystack via shared service (handles kobo conversion)
     const refundResult = await paystackService.refundTransaction(transaction.reference, refundAmount);
     const refundData = refundResult?.data;
 
@@ -83,7 +71,6 @@ const initiateRefund = async (req, res) => {
       return res.status(500).json({ message: 'Refund failed — no response from Paystack' });
     }
 
-    // Step 5: Record refund in Firestore
     const refundRecord = {
       reference: transaction.reference,
       paystackRefundId: refundData.id,
@@ -100,7 +87,6 @@ const initiateRefund = async (req, res) => {
 
     const docRef = await db.collection('refunds').add(refundRecord);
 
-    // Step 6: Update escrow status if linked
     if (metadata?.escrow_id) {
       try {
         await db.collection('escrowTransactions').doc(metadata.escrow_id).update({
@@ -136,9 +122,6 @@ const initiateRefund = async (req, res) => {
   }
 };
 
-// ============================================================================
-// GET — Fetch refunds for the authenticated user (from Firestore)
-// ============================================================================
 const getUserRefunds = async (req, res) => {
   try {
     const userUID = req.user?.uid;
