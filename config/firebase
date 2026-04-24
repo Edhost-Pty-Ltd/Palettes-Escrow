@@ -9,7 +9,6 @@ if (!admin.apps.length) {
 
 const db = admin.firestore();
 
-// Export db as default so existing require('../config/firebase') still works
-// Export admin as a named property for middleware that needs it
+
 module.exports = db;
 module.exports.admin = admin;
