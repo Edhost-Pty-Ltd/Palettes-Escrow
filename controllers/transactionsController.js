@@ -80,30 +80,20 @@ const createTransactionWithLink = async (req, res) => {
     let sellerSubaccount = input.seller_subaccount;
 
     if (!sellerSubaccount && input.escrow_id) {
-      console.log(`No seller_subaccount provided, resolving from escrow: ${input.escrow_id}`);
       const escrow = await getEscrowTransaction(input.escrow_id);
       sellerSubaccount = escrow?.metadata?.subaccountCode;
-      console.log(`Resolved subaccountCode from escrow: ${sellerSubaccount}`);
     }
 
     if (sellerSubaccount) {
       paymentData.subaccount = sellerSubaccount;
       paymentData.metadata.seller_subaccount = sellerSubaccount;
-    } else {
-      console.warn('No seller subaccount found — transaction will not be split');
     }
-
-    console.log('Initializing transaction...');
-    console.log(`Service Amount: ${input.amount} ZAR`);
 
     const result = await paystackService.initializeTransaction(paymentData);
 
     if (!result || !result.status || !result.data) {
-      console.log('Payment initialization failed:', result);
       return res.status(400).json({ error: 'Payment initialization failed. No authorization data returned.' });
     }
-
-    console.log('Payment initialized:', result);
 
     res.json({
       paymentLink: result.data.authorization_url,
@@ -121,8 +111,6 @@ const createTransactionWithLink = async (req, res) => {
 const handleCallback = async (req, res) => {
   try {
     const callbackPayload = req.body;
-
-    console.log('Received callback:', JSON.stringify(callbackPayload, null, 2));
 
     if (!callbackPayload) {
       return res.status(400).json({ error: 'Invalid callback payload structure' });
@@ -178,13 +166,8 @@ const handleCallback = async (req, res) => {
       } : null
     };
 
-    console.log('Checking state', state);
-
     if (state === 'FUNDS_RECEIVED') {
-      console.log('Emitting FUNDS_RECEIVED event...');
       callbackEvents.emit('FUNDS_RECEIVED', allocations);
-
-      console.log('State is FUNDS_RECEIVED, searching Firestore for booking:', data.metadata?.booking_id);
 
       const appointmentsRef = db.collection('appointments_bookings');
 
@@ -198,7 +181,6 @@ const handleCallback = async (req, res) => {
           .get();
 
         if (querySnapshot.empty) {
-          console.log('No matching document found, retrying...');
           attempts++;
           await new Promise(resolve => setTimeout(resolve, 2000));
         } else {
@@ -216,8 +198,6 @@ const handleCallback = async (req, res) => {
               allocations: updatedAllocations,
               status: event === 'charge.success' ? 'PAID' : existingData.status,
             });
-
-            console.log('Document updated successfully with split payment details.');
           });
         }
       }
@@ -254,9 +234,7 @@ const handleCallback = async (req, res) => {
             status: refundStatus,
             updatedAt: new Date().toISOString(),
           });
-          console.log(`Refund record updated to '${refundStatus}' for reference: ${refundRef}`);
         } else {
-          console.warn('No refund record found in Firestore for reference:', refundRef);
         }
       } catch (refundUpdateError) {
         console.error('Failed to update refund status:', refundUpdateError.message);
@@ -271,7 +249,6 @@ const handleCallback = async (req, res) => {
           paystackTransactionId: data.id,
           status: 'active',
         });
-        console.log('Escrow updated for ID:', data.metadata.escrow_id);
       } catch (escrowError) {
         console.error('Failed to update escrow:', escrowError.message);
       }
@@ -371,8 +348,6 @@ const refundTransaction = async (req, res) => {
     if (!result || !result.status) {
       return res.status(400).json({ error: 'Refund failed' });
     }
-
-    console.log('Refund processed successfully:', result);
 
     res.json({
       message: 'Refund processed successfully',

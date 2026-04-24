@@ -34,8 +34,6 @@ const allocationStartDelivery = async (req, res) => {
 
     const result = await paystackService.makePaystackRequest('POST', '/transaction/charge_authorization', chargePayload);
 
-    console.log('Allocation delivery started successfully:', result);
-
     await bookingRef.update({
       status: 'IN_DELIVERY',
       deliveryStartedAt: new Date().toISOString(),
@@ -66,8 +64,6 @@ const allocationAcceptDelivery = async (req, res) => {
         deliveryAcceptedAt: new Date().toISOString(),
       });
     }
-
-    console.log('Allocation delivery accepted successfully');
 
     res.json({
       data: {

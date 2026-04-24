@@ -39,12 +39,5 @@ app.get('/health', (req, res) => {
 });
 
 app.listen(PORT, () => {
-  console.log(`🚀 Server is running on https://nonempty-sierra-paradoxically.ngrok-free.dev`);
-  console.log('✅ Paystack split payment routes active at /api/payments');
-  console.log('💰 Split Payment System:');
-  console.log('   - Platform keeps: 20% (via subaccount percentage_charge)');
-  console.log('   - Seller receives: 80% of service amount');
-  console.log('   - Refund policy: service amount only');
-  console.log('📋 Health check available at /health');
-  console.log('🔗 API Documentation: See PAYSTACK_SPLIT_PAYMENT_IMPLEMENTATION.md');
+  console.log(`Server is running on port ${PORT}`);
 });

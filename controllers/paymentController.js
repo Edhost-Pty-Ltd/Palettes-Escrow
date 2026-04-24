@@ -22,8 +22,6 @@ const verifyPayment = async (req, res) => {
 
     const transactionData = verification.data;
 
-    console.log(`[verifyPayment] ref=${reference} status=${transactionData.status} amount=${transactionData.amount}`);
-
     const metadata = transactionData.metadata || {};
     const splitPaymentDetails = {
       service_amount: Number(metadata.service_amount) || 0,
