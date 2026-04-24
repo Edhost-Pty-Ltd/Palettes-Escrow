@@ -9,25 +9,15 @@ const releaseFunds = async (req, res) => {
   const { id: escrowId } = req.params;
   const professionalUid = req.user?.uid;
 
-  console.log('[releaseFunds] ===== START =====');
-  console.log('[releaseFunds] Escrow ID from params:', escrowId);
-  console.log('[releaseFunds] Professional UID:', professionalUid);
-  console.log('[releaseFunds] Full req.params:', JSON.stringify(req.params));
-
   try {
     const escrowRef = db.collection('escrowTransactions').doc(escrowId);
-    console.log('[releaseFunds] Querying Firestore for escrow:', escrowId);
-    
     const escrowSnap = await escrowRef.get();
-    console.log('[releaseFunds] Escrow exists:', escrowSnap.exists);
 
     if (!escrowSnap.exists) {
-      console.error('[releaseFunds] Escrow not found in Firestore:', escrowId);
       return res.status(404).json({ message: 'Escrow not found' });
     }
 
     const escrow = escrowSnap.data();
-    console.log('[releaseFunds] Escrow data:', JSON.stringify(escrow, null, 2));
 
     if (escrow.professionalVendorId !== professionalUid) {
       return res.status(403).json({ message: 'Only the assigned professional can complete this escrow' });
@@ -45,14 +35,11 @@ const releaseFunds = async (req, res) => {
       return res.status(400).json({ message: `Funds already released. Payout status: ${escrow.payoutStatus}` });
     }
 
-    // Get bookingId from escrow metadata
     const bookingId = escrow.metadata?.booking_id;
     if (!bookingId) {
       return res.status(400).json({ message: 'No booking ID found in escrow metadata' });
     }
 
-    // Query appointments_bookings collection to get the payment reference
-    console.log(`[releaseFunds] Looking up booking: ${bookingId}`);
     const bookingSnap = await db.collection('appointments_bookings')
       .where('bookingId', '==', bookingId)
       .limit(1)
@@ -68,8 +55,6 @@ const releaseFunds = async (req, res) => {
     if (!paymentReference) {
       return res.status(400).json({ message: 'No payment reference found in booking. Payment may not be completed yet.' });
     }
-
-    console.log(`[releaseFunds] Found payment reference: ${paymentReference} for booking: ${bookingId}`);
 
     const vendorSnap = await db.collection('users').doc(escrow.professionalVendorId).get();
 
@@ -87,12 +72,7 @@ const releaseFunds = async (req, res) => {
     let recipientCode = vendorData.paystack_recipient_code;
 
     if (!recipientCode) {
-      console.log(`[releaseFunds] No recipient code for vendor ${escrow.professionalVendorId}, creating...`);
-
       const bankCode = accountDetails.paystackBankCode || accountDetails.branchNumber;
-      if (!accountDetails.paystackBankCode) {
-        console.warn(`[releaseFunds] paystackBankCode not set for vendor ${escrow.professionalVendorId} — falling back to branchNumber. This may cause transfer failures. Vendor should set paystackBankCode via GET /api/payments/banks.`);
-      }
 
       const recipientResult = await createTransferRecipient({
         name: accountDetails.accountHolder || vendorData.displayName || escrow.professionalVendorId,
@@ -106,13 +86,10 @@ const releaseFunds = async (req, res) => {
       }
 
       recipientCode = recipientResult.data.recipient_code;
-      console.log(`[releaseFunds] Recipient created: ${recipientCode}`);
-
       await vendorSnap.ref.update({ paystack_recipient_code: recipientCode });
     }
 
     const vendorAmount = Math.round(escrow.amount * (1 - PLATFORM_PERCENTAGE) * 100) / 100;
-    console.log(`[releaseFunds] Escrow amount: ${escrow.amount} ZAR | Vendor payout: ${vendorAmount} ZAR`);
 
     const transferResult = await initiateTransfer({
       amount: vendorAmount,
@@ -125,7 +102,6 @@ const releaseFunds = async (req, res) => {
     }
 
     const transferCode = transferResult.data.transfer_code;
-    console.log(`[releaseFunds] Transfer initiated: ${transferCode}`);
 
     await escrowRef.update({
       status: 'completed',
