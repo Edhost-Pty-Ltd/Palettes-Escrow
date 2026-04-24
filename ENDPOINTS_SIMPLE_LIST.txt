@@ -1,7 +1,7 @@
 # Essential Paystack API Endpoints
 
 ## LOCAL DEVELOPMENT
-BASE_URL = 'http://localhost:3000/api/payments'
+BASE_URL = 'https://nonempty-sierra-paradoxically.ngrok-free.dev/api/payments'
 
 ## PRODUCTION  
 BASE_URL = 'https://nnaki.flytripsplit.me/api/payments'

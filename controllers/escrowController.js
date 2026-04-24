@@ -23,6 +23,11 @@ const createEscrow = async (req, res) => {
       metadata: { ...metadata, subaccountCode, professionalVendorID, userID },
     });
 
+    console.log("[createEscrow] ✅ Escrow created successfully!");
+    console.log("[createEscrow] Escrow ID:", escrow.id);
+    console.log("[createEscrow] Escrow document ID type:", typeof escrow.id);
+    console.log("[createEscrow] Full escrow object:", JSON.stringify(escrow, null, 2));
+
     res.status(200).json({ success: true, escrowId: escrow.id, subaccountCode });
   } catch (error) {
     console.error("Escrow creation error:", error);

@@ -32,7 +32,7 @@ cp firebase.example.json your-firebase-service-account.json
 npm start
 ```
 
-Server runs on `http://localhost:3000`
+Server runs on `https://nonempty-sierra-paradoxically.ngrok-free.dev`
 
 ## Essential Endpoints
 
@@ -66,7 +66,7 @@ Server runs on `http://localhost:3000`
 PORT=3000
 PAYSTACK_SECRET_KEY=sk_test_your_key_here
 PAYSTACK_PUBLIC_KEY=pk_test_your_key_here
-PAYSTACK_CALLBACK_URL=http://localhost:3000/api/payments/callback
+PAYSTACK_CALLBACK_URL=https://nonempty-sierra-paradoxically.ngrok-free.dev/api/payments/callback
 JWT_SECRET=your_jwt_secret_here
 NODE_ENV=development
 ```

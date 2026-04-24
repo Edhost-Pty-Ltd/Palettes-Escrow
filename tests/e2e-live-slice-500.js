@@ -74,7 +74,7 @@ async function runE2E() {
       email:        CUSTOMER_EMAIL,
       amount:       breakdown.totalAmount,   // R575 ZAR — service converts to kobo internally
       currency:     'ZAR',
-      callback_url: process.env.PAYSTACK_CALLBACK_URL || 'http://localhost:3000/api/payments/callback',
+      callback_url: process.env.PAYSTACK_CALLBACK_URL || 'https://nonempty-sierra-paradoxically.ngrok-free.dev/api/payments/callback',
       metadata: {
         booking_id:        BOOKING_ID,
         firebaseUID:       CUSTOMER_UID,
