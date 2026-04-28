@@ -2,21 +2,14 @@ const db = require('../config/firebase');
 const { FieldValue } = require('firebase-admin/firestore');
 const { createTransferRecipient, initiateTransfer } = require('../services/paystack');
 
-const PLATFORM_PERCENTAGE = 0.20; // platform keeps 20%, vendor gets 80%
+const PLATFORM_PERCENTAGE = 0.20;
 
-/**
- * POST /api/escrow/:id/complete
- *
- * Called by the professional when the service is done.
- * Resolves the vendor's transfer recipient (creating it if needed),
- * then initiates a Paystack transfer for 80% of the escrow amount.
- */
+
 const releaseFunds = async (req, res) => {
   const { id: escrowId } = req.params;
   const professionalUid = req.user?.uid;
 
   try {
-    // ── 1. Load and validate escrow ──────────────────────────────────────────
     const escrowRef = db.collection('escrowTransactions').doc(escrowId);
     const escrowSnap = await escrowRef.get();
 
@@ -26,7 +19,6 @@ const releaseFunds = async (req, res) => {
 
     const escrow = escrowSnap.data();
 
-    // escrow.professionalVendorId is the vendor's Firebase Auth UID (Firestore doc ID)
     if (escrow.professionalVendorId !== professionalUid) {
       return res.status(403).json({ message: 'Only the assigned professional can complete this escrow' });
     }
@@ -43,7 +35,27 @@ const releaseFunds = async (req, res) => {
       return res.status(400).json({ message: `Funds already released. Payout status: ${escrow.payoutStatus}` });
     }
 
-    // ── 2. Load vendor's user doc by Firebase Auth UID (doc ID) ──────────────
+    const bookingId = escrow.metadata?.booking_id;
+    if (!bookingId) {
+      return res.status(400).json({ message: 'No booking ID found in escrow metadata' });
+    }
+
+    const bookingSnap = await db.collection('appointments_bookings')
+      .where('bookingId', '==', bookingId)
+      .limit(1)
+      .get();
+
+    if (bookingSnap.empty) {
+      return res.status(404).json({ message: `Booking not found for bookingId: ${bookingId}` });
+    }
+
+    const bookingData = bookingSnap.docs[0].data();
+    const paymentReference = bookingData.reference;
+
+    if (!paymentReference) {
+      return res.status(400).json({ message: 'No payment reference found in booking. Payment may not be completed yet.' });
+    }
+
     const vendorSnap = await db.collection('users').doc(escrow.professionalVendorId).get();
 
     if (!vendorSnap.exists) {
@@ -57,17 +69,10 @@ const releaseFunds = async (req, res) => {
       return res.status(400).json({ message: 'Vendor has incomplete banking details' });
     }
 
-    // ── 3. Resolve transfer recipient (create once, reuse forever) ────────────
     let recipientCode = vendorData.paystack_recipient_code;
 
     if (!recipientCode) {
-      console.log(`[releaseFunds] No recipient code for vendor ${escrow.professionalVendorId}, creating...`);
-
-      // Prefer paystackBankCode (correct Paystack bank identifier) over branchNumber
       const bankCode = accountDetails.paystackBankCode || accountDetails.branchNumber;
-      if (!accountDetails.paystackBankCode) {
-        console.warn(`[releaseFunds] paystackBankCode not set for vendor ${escrow.professionalVendorId} — falling back to branchNumber. This may cause transfer failures. Vendor should set paystackBankCode via GET /api/payments/banks.`);
-      }
 
       const recipientResult = await createTransferRecipient({
         name: accountDetails.accountHolder || vendorData.displayName || escrow.professionalVendorId,
@@ -81,17 +86,11 @@ const releaseFunds = async (req, res) => {
       }
 
       recipientCode = recipientResult.data.recipient_code;
-      console.log(`[releaseFunds] Recipient created: ${recipientCode}`);
-
-      // Persist so we never create it twice
       await vendorSnap.ref.update({ paystack_recipient_code: recipientCode });
     }
 
-    // ── 4. Calculate vendor payout (80%) ──────────────────────────────────────
     const vendorAmount = Math.round(escrow.amount * (1 - PLATFORM_PERCENTAGE) * 100) / 100;
-    console.log(`[releaseFunds] Escrow amount: ${escrow.amount} ZAR | Vendor payout: ${vendorAmount} ZAR`);
 
-    // ── 5. Initiate Paystack transfer ─────────────────────────────────────────
     const transferResult = await initiateTransfer({
       amount: vendorAmount,
       recipient: recipientCode,
@@ -103,14 +102,14 @@ const releaseFunds = async (req, res) => {
     }
 
     const transferCode = transferResult.data.transfer_code;
-    console.log(`[releaseFunds] Transfer initiated: ${transferCode}`);
 
-    // ── 6. Update escrow ──────────────────────────────────────────────────────
     await escrowRef.update({
       status: 'completed',
       payoutStatus: 'released',
       transferCode,
       vendorPayout: vendorAmount,
+      paymentReference,
+      bookingId,
       completedAt: FieldValue.serverTimestamp(),
       updatedAt: FieldValue.serverTimestamp(),
     });
@@ -120,6 +119,8 @@ const releaseFunds = async (req, res) => {
       message: 'Service marked complete. Funds are being transferred to the professional.',
       data: {
         escrowId,
+        bookingId,
+        paymentReference,
         transferCode,
         vendorPayout: vendorAmount,
         currency: 'ZAR',

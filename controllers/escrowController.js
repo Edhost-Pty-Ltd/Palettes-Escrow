@@ -3,17 +3,10 @@ const { getVendorSubaccount } = require("../services/firebaseService");
 
 const createEscrow = async (req, res) => {
   try {
-    console.log("[createEscrow] Full req.body:", JSON.stringify(req.body));
-    console.log("[createEscrow] Content-Type:", req.headers['content-type']);
-
     const { vendorId: docId, amount, type, metadata } = req.body;
     const customerId = req.user.uid;
 
-    console.log("[createEscrow] customerId (current user UID):", customerId);
-    console.log("[createEscrow] docId from body:", docId);
-
     const { subaccountCode, professionalVendorID, userID } = await getVendorSubaccount(docId);
-    console.log("[createEscrow] getVendorSubaccount result — userID:", userID, "| professionalVendorID:", professionalVendorID, "| subaccountCode:", subaccountCode);
 
     const escrow = await createEscrowTransaction({
       customerId,

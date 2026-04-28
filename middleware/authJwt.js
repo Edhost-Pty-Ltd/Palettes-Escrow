@@ -11,20 +11,15 @@ const authenticateJWT = async (req, res, next) => {
     return res.status(401).json({ message: 'Access token is missing or invalid' });
   }
 
-  // 1. Try verifying as backend-issued JWT first
   try {
     const decoded = jwt.verify(token, SECRET_KEY);
-    // Normalise to always expose both .id and .uid
     req.user = { ...decoded, uid: decoded.uid || decoded.id };
     return next();
   } catch {
-    // Not a backend JWT — fall through to Firebase check
   }
 
-  // 2. Try verifying as a Firebase ID token
   try {
     const decoded = await admin.auth().verifyIdToken(token);
-    // Map Firebase fields to the same shape the rest of the app expects
     req.user = {
       uid: decoded.uid,
       id: decoded.uid,

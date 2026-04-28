@@ -1,28 +1,22 @@
 const paystackService = require('../services/paystack');
 const callbackEvents = require('../events');
 
-/**
- * Create a new token/subaccount
- * Replaces: TradeSafe tokenCreate
- */
 const createToken = async (req, res) => {
   try {
     const { input } = req.body;
 
-    // Validate required bank account details for Paystack
     if (!input.bankAccount?.bank || !input.bankAccount?.accountNumber) {
-      return res.status(400).json({ 
+      return res.status(400).json({
         error: 'Bank account details are required',
         message: 'Please provide bankAccount.bank and bankAccount.accountNumber in the input'
       });
     }
 
-    // Map TradeSafe token input to Paystack subaccount
     const subaccountData = {
       business_name: input.name || `${input.user?.givenName} ${input.user?.familyName}`,
       settlement_bank: input.bankAccount.bank,
       account_number: input.bankAccount.accountNumber,
-      percentage_charge: 95, // Seller gets 95%, agent gets 5%
+      percentage_charge: 95,
       primary_contact_email: input.user?.email,
       primary_contact_name: `${input.user?.givenName} ${input.user?.familyName}`,
       primary_contact_phone: input.user?.mobile,
@@ -34,10 +28,8 @@ const createToken = async (req, res) => {
 
     const result = await paystackService.createSubaccount(subaccountData);
 
-    // Emit event (same as TradeSafe)
     callbackEvents.emit('tokenCreated', result);
 
-    // Format response similar to TradeSafe
     res.json({
       data: {
         tokenCreate: {
@@ -52,21 +44,15 @@ const createToken = async (req, res) => {
   }
 };
 
-/**
- * Fetch token statements/transaction history
- * Replaces: TradeSafe getTokenStatement
- */
 const getTokenStatement = async (req, res) => {
   try {
     const { id, first, page } = req.body;
 
-    // List transactions for this subaccount
     const result = await paystackService.listTransactions({
       perPage: first || 10,
       page: page || 1,
     });
 
-    // Format response similar to TradeSafe
     const formattedData = result.data.map(txn => ({
       type: txn.channel,
       amount: txn.amount / 100,
@@ -89,15 +75,10 @@ const getTokenStatement = async (req, res) => {
   }
 };
 
-/**
- * Update a token with user and organization data
- * Replaces: TradeSafe tokenUpdate
- */
 const updateToken = async (req, res) => {
   try {
     const { id, input } = req.body;
 
-    // Map TradeSafe update input to Paystack subaccount update
     const updateData = {
       business_name: input.name || input.organization?.name,
       settlement_bank: input.bankAccount?.bank,
@@ -113,7 +94,6 @@ const updateToken = async (req, res) => {
 
     const result = await paystackService.updateSubaccount(id, updateData);
 
-    // Format response similar to TradeSafe
     res.json({
       data: {
         tokenUpdate: {
@@ -131,20 +111,14 @@ const updateToken = async (req, res) => {
   }
 };
 
-/**
- * Fetch details of a specific token
- * Replaces: TradeSafe getTokenDetails
- */
 const getTokenDetails = async (req, res) => {
   try {
     const { id } = req.body;
 
     const result = await paystackService.makePaystackRequest('GET', `/subaccount/${id}`);
 
-    // Emit event (same as TradeSafe)
     callbackEvents.emit('tokenCreated', result);
 
-    // Format response similar to TradeSafe
     res.json({
       data: {
         token: {

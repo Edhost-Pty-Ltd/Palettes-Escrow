@@ -8,9 +8,6 @@ require('dotenv').config();
 const SECRET_KEY = process.env.JWT_SECRET;
 const USERS_COLLECTION = 'users';
 
-/**
- * Signup Controller — persists user to Firestore
- */
 const signup = async (req, res) => {
   const { username, password } = req.body;
 
@@ -19,7 +16,6 @@ const signup = async (req, res) => {
   }
 
   try {
-    // Check if username already exists
     const existing = await db.collection(USERS_COLLECTION)
       .where('username', '==', username)
       .limit(1)
@@ -45,9 +41,6 @@ const signup = async (req, res) => {
   }
 };
 
-/**
- * Login Controller — verifies against Firestore
- */
 const login = async (req, res) => {
   const { username, password } = req.body;
 
