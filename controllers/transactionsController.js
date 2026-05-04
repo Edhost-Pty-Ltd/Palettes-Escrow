@@ -95,26 +95,16 @@ const createTransactionWithLink = async (req, res) => {
       return res.status(400).json({ error: 'Payment initialization failed. No authorization data returned.' });
     }
 
-    // Store the reference-to-escrow mapping for webhook lookup
     if (input.escrow_id) {
       try {
-        console.log('[createTransactionWithLink] Storing reference mapping:', {
-          reference: result.data.reference,
-          escrow_id: input.escrow_id,
-          created_at: new Date().toISOString(),
-        });
         await db.collection('transaction_references').add({
           reference: result.data.reference,
           escrow_id: input.escrow_id,
           created_at: new Date().toISOString(),
         });
-        console.log('[createTransactionWithLink] Reference mapping stored successfully');
       } catch (refError) {
         console.error('Failed to store transaction reference mapping:', refError.message);
-        // Don't fail the transaction creation if this fails, just log it
       }
-    } else {
-      console.log('[createTransactionWithLink] No escrow_id provided, skipping reference mapping storage');
     }
 
     res.json({
@@ -133,7 +123,6 @@ const createTransactionWithLink = async (req, res) => {
 const handleCallback = async (req, res) => {
   try {
     const callbackPayload = req.body;
-    console.log('[handleCallback] Received webhook payload:', JSON.stringify(callbackPayload, null, 2));
 
     if (!callbackPayload) {
       return res.status(400).json({ error: 'Invalid callback payload structure' });
@@ -150,9 +139,6 @@ const handleCallback = async (req, res) => {
     }
 
     const { event, data } = callbackPayload;
-    console.log('[handleCallback] Event type:', event);
-    console.log('[handleCallback] Transaction reference:', data.reference);
-    console.log('[handleCallback] Transaction metadata:', data.metadata);
 
     let state = null;
     let allocations = [];
@@ -268,35 +254,24 @@ const handleCallback = async (req, res) => {
     }
 
     if (event === 'charge.success') {
-      console.log('[handleCallback] Processing charge.success event');
       let escrowId = data.metadata?.escrow_id;
-      console.log('[handleCallback] Escrow ID from metadata:', escrowId);
 
-      // If escrow_id not in metadata, look it up using the reference
       if (!escrowId) {
-        console.log('[handleCallback] Escrow ID not in metadata, looking up using reference:', data.reference);
         try {
           const refSnapshot = await db.collection('transaction_references')
             .where('reference', '==', data.reference)
             .limit(1)
             .get();
 
-          console.log('[handleCallback] Query result - empty:', refSnapshot.empty, 'docs count:', refSnapshot.docs.length);
-          
           if (!refSnapshot.empty) {
             escrowId = refSnapshot.docs[0].data().escrow_id;
-            console.log('[handleCallback] Found escrow_id from reference lookup:', escrowId);
-          } else {
-            console.log('[handleCallback] No transaction_references document found for reference:', data.reference);
           }
         } catch (lookupError) {
           console.error('Failed to lookup escrow_id from reference:', lookupError.message);
         }
       }
 
-      // Update escrow if we found an escrow_id
       if (escrowId) {
-        console.log('[handleCallback] Attempting to update escrow with ID:', escrowId);
         try {
           await updateEscrowTransaction(escrowId, {
             paymentStatus: 'paid',
@@ -304,13 +279,9 @@ const handleCallback = async (req, res) => {
             paystackTransactionId: data.id,
             status: 'active',
           });
-          console.log('[handleCallback] Escrow updated successfully for ID:', escrowId);
         } catch (escrowError) {
           console.error('Failed to update escrow:', escrowError.message);
-          console.error('Escrow update error details:', escrowError);
         }
-      } else {
-        console.log('[handleCallback] No escrow_id found, skipping escrow update');
       }
     }
 
