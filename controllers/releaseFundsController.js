@@ -109,22 +109,29 @@ const releaseFunds = async (req, res) => {
       });
     }
 
+   
+
     const bookingId = escrow.metadata?.booking_id;
     if (!bookingId) {
       return res.status(400).json({ message: 'No booking ID found in escrow metadata' });
     }
 
+    console.log('[releaseFunds] Looking for booking with ID:', bookingId);
+
     const bookingSnap = await db.collection('appointments_bookings')
-      .where('bookingId', '==', bookingId)
+      .where('id', '==', bookingId)
       .limit(1)
       .get();
 
+    console.log('[releaseFunds] Query result - empty:', bookingSnap.empty, 'docs count:', bookingSnap.docs.length);
+
     if (bookingSnap.empty) {
+      console.error('[releaseFunds] Booking not found for bookingId:', bookingId);
       return res.status(404).json({ message: `Booking not found for bookingId: ${bookingId}` });
     }
 
     const bookingData = bookingSnap.docs[0].data();
-    const paymentReference = bookingData.reference;
+    const paymentReference = bookingData.paymentReference;
 
     if (!paymentReference) {
       return res.status(400).json({ message: 'No payment reference found in booking. Payment may not be completed yet.' });

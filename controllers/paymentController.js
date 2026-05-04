@@ -1,4 +1,6 @@
 const paystackService = require('../services/paystack');
+const { updateEscrowTransaction } = require('../models/escrowModel');
+const db = require('../config/firebase');
 
 const verifyPayment = async (req, res) => {
   try {
@@ -29,6 +31,54 @@ const verifyPayment = async (req, res) => {
       agent_service_fee: Number(metadata.agent_service_fee) || 0,
       total_amount: Number(metadata.total_amount) || transactionData.amount / 100,
     };
+
+    // Handle escrow update if payment is successful
+    if (transactionData.status === 'success') {
+      console.log('[verifyPayment] Payment successful, checking for escrow_id');
+      let escrowId = metadata.escrow_id;
+      console.log('[verifyPayment] Escrow ID from metadata:', escrowId);
+
+      // If escrow_id not in metadata, look it up using the reference
+      if (!escrowId) {
+        console.log('[verifyPayment] Escrow ID not in metadata, looking up using reference:', reference);
+        try {
+          const refSnapshot = await db.collection('transaction_references')
+            .where('reference', '==', reference)
+            .limit(1)
+            .get();
+
+          console.log('[verifyPayment] Query result - empty:', refSnapshot.empty, 'docs count:', refSnapshot.docs.length);
+
+          if (!refSnapshot.empty) {
+            escrowId = refSnapshot.docs[0].data().escrow_id;
+            console.log('[verifyPayment] Found escrow_id from reference lookup:', escrowId);
+          } else {
+            console.log('[verifyPayment] No transaction_references document found for reference:', reference);
+          }
+        } catch (lookupError) {
+          console.error('[verifyPayment] Failed to lookup escrow_id from reference:', lookupError.message);
+        }
+      }
+
+      // Update escrow if we found an escrow_id
+      if (escrowId) {
+        console.log('[verifyPayment] Attempting to update escrow with ID:', escrowId);
+        try {
+          await updateEscrowTransaction(escrowId, {
+            paymentStatus: 'paid',
+            reference: transactionData.reference,
+            paystackTransactionId: transactionData.id,
+            status: 'active',
+          });
+          console.log('[verifyPayment] Escrow updated successfully for ID:', escrowId);
+        } catch (escrowError) {
+          console.error('[verifyPayment] Failed to update escrow:', escrowError.message);
+          console.error('[verifyPayment] Escrow update error details:', escrowError);
+        }
+      } else {
+        console.log('[verifyPayment] No escrow_id found, skipping escrow update');
+      }
+    }
 
     res.status(200).json({
       status: transactionData.status === 'success' ? 'success' : 'failed',
