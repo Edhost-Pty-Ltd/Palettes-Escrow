@@ -1,11 +1,9 @@
 const db = require("../config/firebase");
 const { createSubaccount: paystackCreateSubaccount } = require("../services/paystack");
-
 const PLATFORM_PERCENTAGE_CHARGE = 20;
 
 const createSubaccount = async (req, res) => {
   const { vendorId, business_name, account_number, bank_code, currency = "ZAR" } = req.body;
-
   if (!business_name || !account_number || !bank_code) {
     return res.status(400).json({
       success: false,

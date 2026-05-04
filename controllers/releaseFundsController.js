@@ -4,35 +4,104 @@ const { createTransferRecipient, initiateTransfer } = require('../services/payst
 
 const PLATFORM_PERCENTAGE = 0.20;
 
+const validateEscrowForApproval = async (escrowId) => {
+  const escrowRef = db.collection('escrowTransactions').doc(escrowId);
+  const escrowSnap = await escrowRef.get();
 
-const releaseFunds = async (req, res) => {
+  if (!escrowSnap.exists) {
+    return { valid: false, error: { status: 404, message: 'Escrow not found' } };
+  }
+
+  const escrow = escrowSnap.data();
+
+  if (escrow.status !== 'active') {
+    return { valid: false, error: { status: 400, message: `Escrow is not active. Current status: ${escrow.status}` } };
+  }
+
+  if (escrow.paymentStatus !== 'paid') {
+    return { valid: false, error: { status: 400, message: 'Payment has not been received yet' } };
+  }
+
+  return { valid: true, escrowRef, escrow };
+};
+
+const toggleReleaseApproval = async (req, res) => {
+  const { id: escrowId } = req.params;
+  const userId = req.user?.uid;
+
+  try {
+    const validation = await validateEscrowForApproval(escrowId);
+    if (!validation.valid) {
+      const { status, message } = validation.error;
+      return res.status(status).json({ message });
+    }
+
+    const { escrowRef, escrow } = validation;
+
+    const isConsumer = escrow.customerId === userId;
+    const isProfessional = escrow.professionalVendorId === userId;
+
+    if (!isConsumer && !isProfessional) {
+      return res.status(403).json({ message: 'You are not authorized to approve this escrow' });
+    }
+
+    const updateData = isConsumer
+      ? { consumerApprovedRelease: true }
+      : { professionalApprovedRelease: true };
+
+    await escrowRef.update({
+      ...updateData,
+      updatedAt: FieldValue.serverTimestamp(),
+    });
+
+    const updatedSnap = await escrowRef.get();
+    const updatedEscrow = updatedSnap.data();
+
+    res.json({
+      success: true,
+      message: `${isConsumer ? 'Consumer' : 'Professional'} approved release of funds`,
+      data: {
+        escrowId,
+        consumerApprovedRelease: updatedEscrow.consumerApprovedRelease,
+        professionalApprovedRelease: updatedEscrow.professionalApprovedRelease,
+        bothApproved: updatedEscrow.consumerApprovedRelease && updatedEscrow.professionalApprovedRelease,
+      },
+    });
+  } catch (error) {
+    console.error('[toggleReleaseApproval] Error:', error.message);
+    res.status(500).json({ message: 'Failed to toggle release approval', error: error.message });
+  }
+};
+
+  const releaseFunds = async (req, res) => {
   const { id: escrowId } = req.params;
   const professionalUid = req.user?.uid;
 
   try {
-    const escrowRef = db.collection('escrowTransactions').doc(escrowId);
-    const escrowSnap = await escrowRef.get();
-
-    if (!escrowSnap.exists) {
-      return res.status(404).json({ message: 'Escrow not found' });
+    const validation = await validateEscrowForApproval(escrowId);
+    if (!validation.valid) {
+      const { status, message } = validation.error;
+      return res.status(status).json({ message });
     }
 
-    const escrow = escrowSnap.data();
+    const { escrowRef, escrow } = validation;
 
     if (escrow.professionalVendorId !== professionalUid) {
       return res.status(403).json({ message: 'Only the assigned professional can complete this escrow' });
     }
 
-    if (escrow.status !== 'active') {
-      return res.status(400).json({ message: `Escrow is not active. Current status: ${escrow.status}` });
-    }
-
-    if (escrow.paymentStatus !== 'paid') {
-      return res.status(400).json({ message: 'Payment has not been received yet' });
-    }
-
     if (escrow.payoutStatus !== 'not_paid') {
       return res.status(400).json({ message: `Funds already released. Payout status: ${escrow.payoutStatus}` });
+    }
+
+    if (!escrow.consumerApprovedRelease || !escrow.professionalApprovedRelease) {
+      return res.status(400).json({
+        message: 'Both consumer and professional must approve the release of funds',
+        data: {
+          consumerApprovedRelease: escrow.consumerApprovedRelease || false,
+          professionalApprovedRelease: escrow.professionalApprovedRelease || false,
+        },
+      });
     }
 
     const bookingId = escrow.metadata?.booking_id;
@@ -41,7 +110,7 @@ const releaseFunds = async (req, res) => {
     }
 
     const bookingSnap = await db.collection('appointments_bookings')
-      .where('bookingId', '==', bookingId)
+      .where('id', '==', bookingId)
       .limit(1)
       .get();
 
@@ -110,6 +179,8 @@ const releaseFunds = async (req, res) => {
       vendorPayout: vendorAmount,
       paymentReference,
       bookingId,
+      consumerApprovedRelease: false,
+      professionalApprovedRelease: false,
       completedAt: FieldValue.serverTimestamp(),
       updatedAt: FieldValue.serverTimestamp(),
     });
@@ -134,4 +205,4 @@ const releaseFunds = async (req, res) => {
   }
 };
 
-module.exports = { releaseFunds };
+module.exports = { releaseFunds, toggleReleaseApproval };

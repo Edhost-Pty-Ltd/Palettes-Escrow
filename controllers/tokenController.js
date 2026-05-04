@@ -16,7 +16,7 @@ const createToken = async (req, res) => {
       business_name: input.name || `${input.user?.givenName} ${input.user?.familyName}`,
       settlement_bank: input.bankAccount.bank,
       account_number: input.bankAccount.accountNumber,
-      percentage_charge: 95,
+      percentage_charge: 80,
       primary_contact_email: input.user?.email,
       primary_contact_name: `${input.user?.givenName} ${input.user?.familyName}`,
       primary_contact_phone: input.user?.mobile,

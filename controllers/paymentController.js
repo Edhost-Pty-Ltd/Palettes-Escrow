@@ -1,4 +1,6 @@
 const paystackService = require('../services/paystack');
+const { updateEscrowTransaction } = require('../models/escrowModel');
+const db = require('../config/firebase');
 
 const verifyPayment = async (req, res) => {
   try {
@@ -29,6 +31,38 @@ const verifyPayment = async (req, res) => {
       agent_service_fee: Number(metadata.agent_service_fee) || 0,
       total_amount: Number(metadata.total_amount) || transactionData.amount / 100,
     };
+
+    if (transactionData.status === 'success') {
+      let escrowId = metadata.escrow_id;
+
+      if (!escrowId) {
+        try {
+          const refSnapshot = await db.collection('transaction_references')
+            .where('reference', '==', reference)
+            .limit(1)
+            .get();
+
+          if (!refSnapshot.empty) {
+            escrowId = refSnapshot.docs[0].data().escrow_id;
+          }
+        } catch (lookupError) {
+          console.error('[verifyPayment] Failed to lookup escrow_id from reference:', lookupError.message);
+        }
+      }
+
+      if (escrowId) {
+        try {
+          await updateEscrowTransaction(escrowId, {
+            paymentStatus: 'paid',
+            reference: transactionData.reference,
+            paystackTransactionId: transactionData.id,
+            status: 'active',
+          });
+        } catch (escrowError) {
+          console.error('[verifyPayment] Failed to update escrow:', escrowError.message);
+        }
+      }
+    }
 
     res.status(200).json({
       status: transactionData.status === 'success' ? 'success' : 'failed',

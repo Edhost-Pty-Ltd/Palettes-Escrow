@@ -15,6 +15,8 @@ const createEscrowTransaction = async ({ customerId, professionalVendorId, amoun
       status: "pending",
       paymentStatus: "unpaid",
       payoutStatus: "not_paid",
+      consumerApprovedRelease: false,
+      professionalApprovedRelease: false,
       metadata,
       createdAt: FieldValue.serverTimestamp(),
       updatedAt: FieldValue.serverTimestamp(),

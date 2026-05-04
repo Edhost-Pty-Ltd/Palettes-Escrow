@@ -95,6 +95,18 @@ const createTransactionWithLink = async (req, res) => {
       return res.status(400).json({ error: 'Payment initialization failed. No authorization data returned.' });
     }
 
+    if (input.escrow_id) {
+      try {
+        await db.collection('transaction_references').add({
+          reference: result.data.reference,
+          escrow_id: input.escrow_id,
+          created_at: new Date().toISOString(),
+        });
+      } catch (refError) {
+        console.error('Failed to store transaction reference mapping:', refError.message);
+      }
+    }
+
     res.json({
       paymentLink: result.data.authorization_url,
       reference: result.data.reference,
@@ -241,16 +253,35 @@ const handleCallback = async (req, res) => {
       }
     }
 
-    if (event === 'charge.success' && data.metadata?.escrow_id) {
-      try {
-        await updateEscrowTransaction(data.metadata.escrow_id, {
-          paymentStatus: 'paid',
-          reference: data.reference,
-          paystackTransactionId: data.id,
-          status: 'active',
-        });
-      } catch (escrowError) {
-        console.error('Failed to update escrow:', escrowError.message);
+    if (event === 'charge.success') {
+      let escrowId = data.metadata?.escrow_id;
+
+      if (!escrowId) {
+        try {
+          const refSnapshot = await db.collection('transaction_references')
+            .where('reference', '==', data.reference)
+            .limit(1)
+            .get();
+
+          if (!refSnapshot.empty) {
+            escrowId = refSnapshot.docs[0].data().escrow_id;
+          }
+        } catch (lookupError) {
+          console.error('Failed to lookup escrow_id from reference:', lookupError.message);
+        }
+      }
+
+      if (escrowId) {
+        try {
+          await updateEscrowTransaction(escrowId, {
+            paymentStatus: 'paid',
+            reference: data.reference,
+            paystackTransactionId: data.id,
+            status: 'active',
+          });
+        } catch (escrowError) {
+          console.error('Failed to update escrow:', escrowError.message);
+        }
       }
     }
 
